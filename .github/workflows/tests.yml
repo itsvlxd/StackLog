@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_call:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # Reported, not gated. ns/op depends on the machine and GitHub runners are
+      # shared. If you want a performance assertion, gate on allocs/op, which is
+      # deterministic and is the claim this package actually makes.
+      - name: Benchmarks
+        run: go test -bench . -benchmem

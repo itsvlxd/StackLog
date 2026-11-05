@@ -1,0 +1,163 @@
+name: release
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  nightly:
+    runs-on: ubuntu-latest
+    needs: tests
+    if: github.ref == 'refs/heads/develop'
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "ci@stacklog.local"
+          git config --local user.name "stacklog CI"
+
+      - name: Delete existing nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if gh release view nightly-build --repo "${{ github.repository }}" 2>/dev/null; then
+            gh release delete nightly-build --repo "${{ github.repository }}" --yes
+          fi
+          git push origin :refs/tags/nightly-build
+
+      - name: Create nightly tag
+        run: |
+          git tag -fa nightly-build -m "stacklog nightly build"
+          git push origin nightly-build --force
+
+      - name: Generate release notes
+        run: |
+          cat > release_body.md << 'ENDOFFILE'
+          <p align="center">
+            <img src="https://raw.githubusercontent.com/${{ github.repository }}/main/assets/stacklog.png" alt="stacklog" width="440">
+          </p>
+
+          <p align="center">
+            <img alt="Go 1.27" src="https://img.shields.io/badge/Go-1.27-0a0a0a?style=for-the-badge&labelColor=0a0a0a&color=00ADD8">
+            <img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/${{ github.repository }}/tests.yml?branch=develop&label=Tests&style=for-the-badge&labelColor=0a0a0a&color=00ADD8">
+            <img alt="pkg.go.dev" src="https://img.shields.io/badge/pkg.go.dev-reference-0a0a0a?style=for-the-badge&labelColor=0a0a0a&color=00ADD8">
+          </p>
+
+          `stacklog` writes one line per call into a fixed, pre-allocated buffer and flushes it in a single write.
+
+          Nightly builds come from the latest commit on `develop`, after the tests workflow has passed for that commit. They may contain bugs, regressions, or features that have not been fully tested. The API is not stable while the version is `v0.x`, so expect breaking changes between builds. Do not use a nightly build in production.
+
+          > `nightly-build` is a GitHub release tag, not a Go module version. Go resolves module versions from tags in the form `vX.Y.Z`, so `go get` will not pick this up. Use a tagged release for that.
+
+          If you encounter any issues, report them on the [issue tracker](https://github.com/${{ github.repository }}/issues).
+
+          For a stable version, take the latest tagged release from the [Releases page](https://github.com/${{ github.repository }}/releases).
+
+          [Report a Bug](https://github.com/${{ github.repository }}/issues/new?labels=bug) · [Request a Feature](https://github.com/${{ github.repository }}/issues/new?labels=enhancement)
+
+          **Commit:** ${{ github.sha }} · **Built:** ${{ github.event.head_commit.timestamp }}
+          ENDOFFILE
+
+      - name: Create nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-build
+          name: 'stacklog nightly'
+          body_path: release_body.md
+          draft: false
+          prerelease: true
+          overwrite: true
+          token: ${{ secrets.GH_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  stable:
+    runs-on: ubuntu-latest
+    needs: tests
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "ci@stacklog.local"
+          git config --local user.name "stacklog CI"
+
+      # Plugins come from .releaserc. Do not duplicate them here.
+      # The preset is not a plugin, but commit-analyzer resolves it through the
+      # action's node_modules, so it has to be installed here too. Pin it: v10
+      # of the preset renders empty release notes under release-notes-generator v14.
+      - name: Semantic release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v6
+        with:
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@9.3.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Brand stable release body
+        if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          VERSION: ${{ steps.semantic.outputs.new_release_version }}
+        run: |
+          RELEASE_TAG="v${VERSION}"
+          notes=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json body -q .body)
+
+          cat > stable_body.md << 'ENDOFFILE'
+          <p align="center">
+            <img src="https://raw.githubusercontent.com/${{ github.repository }}/main/assets/stacklog.png" alt="stacklog" width="440">
+          </p>
+
+          <p align="center">
+            <img alt="Go 1.27" src="https://img.shields.io/badge/Go-1.27-0a0a0a?style=for-the-badge&labelColor=0a0a0a&color=00ADD8">
+            <img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/${{ github.repository }}/tests.yml?branch=main&label=Tests&style=for-the-badge&labelColor=0a0a0a&color=00ADD8">
+            <img alt="pkg.go.dev" src="https://img.shields.io/badge/pkg.go.dev-reference-0a0a0a?style=for-the-badge&labelColor=0a0a0a&color=00ADD8">
+          </p>
+
+          `stacklog` writes one line per call into a fixed, pre-allocated buffer and flushes it in a single write.
+
+          Stable releases are built from `main` and contain only changes that passed the tests workflow. A `v1.0.0` tag means the public API will not break.
+
+          If you encounter any issues, report them on the [issue tracker](https://github.com/${{ github.repository }}/issues).
+
+          The latest changes are on the [nightly release](https://github.com/${{ github.repository }}/releases/tag/nightly-build).
+
+          [Report a Bug](https://github.com/${{ github.repository }}/issues/new?labels=bug) · [Request a Feature](https://github.com/${{ github.repository }}/issues/new?labels=enhancement)
+
+          **Commit:** ${{ github.sha }} · **Built:** ${{ github.event.head_commit.timestamp }}
+          ENDOFFILE
+
+          # A quoted heredoc does not expand shell variables, so $notes has to be
+          # appended separately. Writing it inside the heredoc would print the
+          # literal text "$notes".
+          printf '\n## Changelog\n\n%s\n' "$notes" >> stable_body.md
+
+          gh release edit "$RELEASE_TAG" --repo "${{ github.repository }}" --notes-file stable_body.md
