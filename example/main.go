@@ -16,8 +16,8 @@ func main() {
 	base.Error("default config, error level")
 
 	// 2. A full style set passed through Config. A component left as the zero
-	//    value falls back to the package default for that component.
-	//    The arrays are sized by MaxLevel, which is exported.
+	//    value falls back to the named preset, which is the package palette when
+	//    no preset is given. The arrays are sized by MaxLevel, which is exported.
 	custom := stacklog.CreateLogger(stacklog.Config{
 		Timestamp:  true,
 		TimeFormat: "15:04:05",
@@ -56,7 +56,33 @@ func main() {
 	custom.Error("padded error badge")
 	custom.WithParams("request_id", 42, "user", "vlad").Error("params through WithParams, not as extra arguments")
 
-	// 3. Prefix style and the copy pattern. WithParams and WithPrefix return new
+	// 3. Presets. A preset fills only the components left as the zero value, so a
+	//    single component override stands against the whole preset. An unknown name
+	//    resolves to default.
+	preset := stacklog.CreateLogger(stacklog.Config{
+		Timestamp: true,
+		Style: stacklog.Style{
+			Preset: stacklog.PresetBadge,
+			Level: [stacklog.MaxLevel]stacklog.CompStyle{
+				stacklog.NewStyle().Foreground("#FFFFFF").Background("#D75F5F"),
+			},
+		},
+	})
+
+	preset.Debug("level 0 is the caller's override, not the preset")
+	preset.Error("badge: the level is a block, with padding inside it")
+
+	// Plain sets nothing, so no escape sequence is written at all. This is the one
+	// that makes a log file readable without a terminal.
+	plain := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{Preset: stacklog.PresetPlain}})
+	plain.Warn("no colour codes and no reset codes")
+
+	// The prefix is styled through Style.Prefix. Before that field existed the
+	// prefix colour was hardcoded, so a preset could not reach it.
+	hc := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{Preset: stacklog.PresetHighContrast}})
+	hc.WithPrefix("http").Error("the prefix colour comes from the preset")
+
+	// 4. Prefix style and the copy pattern. WithParams and WithPrefix return new
 	//    loggers, so a base logger can be shared and specialised per call site.
 	scoped := custom.WithPrefix("http")
 	paired := scoped.WithParams("request_id", 42, "user", "vlad")
@@ -64,7 +90,7 @@ func main() {
 	paired.Warn("params on the shared logger")
 	scoped.Info("this logger has no params, the original is unchanged")
 
-	// 4. Padding. Left and Right sit inside the coloured block, so a badge with a
+	// 5. Padding. Left and Right sit inside the coloured block, so a badge with a
 	//    background extends over them. Top applies only at the start of a line,
 	//    Bottom only after the line ends.
 	badge := stacklog.CreateLogger(stacklog.Config{})
@@ -77,7 +103,7 @@ func main() {
 	badge.Error("Top puts a blank line before, Bottom puts two after")
 	badge.Info("next line, no padding")
 
-	// 5. Writing somewhere other than stdout, with the error handled.
+	// 6. Writing somewhere other than stdout, with the error handled.
 	//    This is the capability that makes a logger usable as a library.
 	f, err := os.OpenFile("stacklog-example.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -94,11 +120,11 @@ func main() {
 
 	os.Stdout.WriteString("wrote a line to stacklog-example.log\n")
 
-	// 6. Types that AppendAny does not handle are written as <unsupported>.
+	// 7. Types that AppendAny does not handle are written as <unsupported>.
 	//    float64, time.Duration and error are the common ones missing.
 	custom.WithParams("float", 3.14, "handled", 5).Warn("float64 falls through to the default branch")
 
-	// 7. Fatal writes the line and exits with status 1. Deferred functions do not
+	// 8. Fatal writes the line and exits with status 1. Deferred functions do not
 	//    run, so the file above is not flushed by the deferred Close if the writer
 	//    were buffered. Keep this last.
 	custom.Fatal("the last line")
