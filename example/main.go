@@ -8,7 +8,7 @@ import (
 
 func main() {
 	// 1. Default config, every level.
-	base := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{NoColors: true}})
+	base := stacklog.CreateLogger(stacklog.Config{})
 
 	base.Debug("default config, debug level")
 	base.Info("default config, info level")
@@ -22,7 +22,6 @@ func main() {
 		Timestamp:  true,
 		TimeFormat: "15:04:05",
 		Style: stacklog.Style{
-			NoColors:  true,
 			Timestamp: stacklog.NewStyle().Foreground("#666666"),
 
 			Level: [stacklog.MaxLevel]stacklog.CompStyle{
