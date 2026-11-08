@@ -1,18 +1,32 @@
 package stacklog
 
-type (
-	Color       uint8
-	colorTarget uint8
+// Color is a colour index. 0-7 are the eight base colours, 8-15 the bright
+// variants, and 16-255 the 256-colour palette. It is uint8, so a value outside
+// 0-255 cannot exist as a Color. Anything larger is clamped when it is accepted
+// through Foreground or Background.
+type Color uint8
 
-	ColorRGB struct {
-		R Color
-		G Color
-		B Color
-	}
-)
+// colorTarget selects which half of a colour pair writeColor applies to.
+type colorTarget uint8
 
+// ColorRGB is a truecolour triple. Each component is a Color, so 0-255.
+//
+// A zero ColorRGB is treated as "no colour set", so ColorRGB{0,0,0} - black -
+// takes the index path rather than the RGB path. It renders the same black through
+// a different escape sequence, so the colour is the same and the code is not.
+type ColorRGB struct {
+	R Color
+	G Color
+	B Color
+}
+
+// ColorReset is not a colour. It is the value that clears a component's flag, so
+// Foreground(ColorReset) means "nothing set" rather than "reset to default". Black
+// is Foreground(0).
 const ColorReset string = "reset"
 
+// TargetFG and TargetBG select the foreground or background half of a colour pair.
+// They are only used inside the package.
 const (
 	TargetFG colorTarget = 0
 	TargetBG colorTarget = 1
@@ -132,6 +146,11 @@ func hexCharToByte(ch byte) Color {
 	return 0
 }
 
+// HexToRGB converts a #RRGGBB string to a colour triple.
+//
+// It cannot report failure. Any input that is not exactly seven characters starting
+// with # returns white. That is a known gap: an invalid hex string should produce
+// an error, not a colour.
 func HexToRGB(hex string) ColorRGB {
 	var (
 		r Color
