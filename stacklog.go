@@ -61,7 +61,7 @@ type Config struct {
 // The Level and Params arrays have length MaxLevel, which is exported, so a
 // caller can write [MaxLevel]CompStyle rather than a literal 5. Adding a level
 // changes that length, which is a breaking change for anyone constructing a
-// Style. See the MaxLevel card.
+// Style.
 //
 // Preset names a base style. CreateLogger takes each component from the preset
 // only when that component is left as the zero value, so a component set here
