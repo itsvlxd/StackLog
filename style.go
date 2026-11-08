@@ -15,14 +15,17 @@ type Padding struct {
 // CompStyle is a single component's colour and padding. Every method returns a
 // copy, so a style is immutable and can be shared safely between loggers.
 //
-// The zero value means "no colour set": 0 is used as the sentinel in
-// addColorStyle, so black cannot be expressed through these fields.
+// The set flags carry "a colour was given" separately from the colour itself, so
+// black is an expressible colour rather than the sentinel. The zero value still
+// means "nothing set", which is what the preset guard in CreateLogger relies on.
 type CompStyle struct {
 	p     Padding
 	bg    Color
 	bgRGB ColorRGB
+	bgSet bool
 	fg    Color
 	fgRGB ColorRGB
+	fgSet bool
 }
 
 // NewStyle returns an empty style. Colours and padding are set through the
@@ -43,7 +46,7 @@ func (cs CompStyle) Padding(p Padding) CompStyle {
 // Foreground sets the foreground colour and returns the modified copy. val is
 // accepted as a numeric colour index, a Color, a ColorRGB, or a hex string.
 func (cs CompStyle) Foreground(val any) CompStyle {
-	parseColorVal(val, &cs.fg, &cs.fgRGB)
+	parseColorVal(val, &cs.fg, &cs.fgRGB, &cs.fgSet)
 
 	return cs
 }
@@ -51,65 +54,69 @@ func (cs CompStyle) Foreground(val any) CompStyle {
 // Background sets the background colour and returns the modified copy. Same
 // accepted forms as Foreground.
 func (cs CompStyle) Background(val any) CompStyle {
-	parseColorVal(val, &cs.bg, &cs.bgRGB)
+	parseColorVal(val, &cs.bg, &cs.bgRGB, &cs.bgSet)
 
 	return cs
 }
 
 // parseColorVal converts an accepted colour form into a colour index or an RGB
-// triple.
+// triple, and records that a colour was given.
 //
 // Two behaviours worth knowing:
 //
-//   - The result depends on the Go type the caller happens to use. Foreground(5)
-//     produces 5, Foreground(Color(5)) produces 6, because the +1 shift only
-//     exists on the Color branch. That is a known inconsistency.
 //   - There is no default branch, so an unhandled type leaves the colour
-//     unchanged. A hex string that is not valid falls back to white through
-//     HexToRGB, which cannot report failure.
-func parseColorVal(val any, color *Color, rgb *ColorRGB) {
+//     unchanged and the flag unset. A hex string that is not valid falls back to
+//     white through HexToRGB, which cannot report failure.
+//   - "reset" clears the flag rather than setting a colour, so Foreground(ColorReset)
+//     means "nothing set". Black is Foreground(0), which is now reachable.
+func parseColorVal(val any, color *Color, rgb *ColorRGB, set *bool) {
 	switch c := val.(type) {
 	case int:
-		*color = Color(c)
+		*color, *set = Color(c), true
 	case int32:
-		*color = Color(c)
+		*color, *set = Color(c), true
 	case int64:
-		*color = Color(c)
+		*color, *set = Color(c), true
 	case uint:
-		*color = Color(c)
+		*color, *set = Color(c), true
 	case uint32:
-		*color = Color(c)
+		*color, *set = Color(c), true
 	case uint64:
-		*color = Color(c)
+		*color, *set = Color(c), true
 	case Color:
-		// +1 shifts the value space so that 0 can be reserved as "not set".
-		// The cost is that Color(0) becomes unreachable.
-		*color = c + 1
+		*color, *set = c, true
 	case ColorRGB:
-		*rgb = c
+		*rgb, *set = c, true
 	case string:
 		if c == "reset" {
-			*color = 0
+			*color, *set = 0, false
 		} else {
-			*rgb = HexToRGB(c)
+			*rgb, *set = HexToRGB(c), true
 		}
 	}
 }
 
-// addColorStyle writes the escape sequences for a style into the buffer. A zero
-// colour is treated as "not set" and emits nothing, which is why the sentinel and
-// the value collide.
+// addColorStyle writes the escape sequences for a style into the buffer. A style
+// with no flag set emits nothing.
+//
+// shortcut: an RGB triple of {0,0,0} takes the index path, which renders the same
+// black through a different escape. Upgrade if the two forms ever need to be told
+// apart.
 func addColorStyle(buf *StackBuffer, style CompStyle) {
-	if style.bgRGB != (ColorRGB{}) {
-		buf.BgColor(style.bgRGB)
-	} else if style.bg > 0 {
-		buf.BgColor(style.bg)
+	if style.bgSet {
+		if style.bgRGB != (ColorRGB{}) {
+			buf.BgColor(style.bgRGB)
+		} else {
+			buf.BgColor(style.bg)
+		}
 	}
 
-	if style.fgRGB != (ColorRGB{}) {
-		buf.FgColor(style.fgRGB)
-	} else if style.fg > 0 {
-		buf.FgColor(style.fg)
+	if style.fgSet {
+		if style.fgRGB != (ColorRGB{}) {
+			buf.FgColor(style.fgRGB)
+		} else {
+			buf.FgColor(style.fg)
+		}
 	}
 }
 
@@ -160,5 +167,10 @@ func (sl *StackLog) addPostStyle(style CompStyle) {
 		buf.maxBottom = sp.Bottom
 	}
 
-	buf.ResetColor()
+	// The reset only belongs to a component that actually opened a colour. Without
+	// this, a style with nothing set still writes an escape sequence, and a plain
+	// preset is not plain.
+	if style.bgSet || style.fgSet {
+		buf.ResetColor()
+	}
 }
