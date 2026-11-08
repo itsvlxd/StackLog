@@ -69,3 +69,60 @@ func FuzzHexToRGB(f *testing.F) {
 		HexToRGB(s) // must not panic for any input
 	})
 }
+
+// The boundaries of the three branches in writeColor. Asserting the middle of a
+// range proves nothing; the edges are where an off-by-one shows up.
+func TestColorBoundaries(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(*StackBuffer)
+		want string
+	}{
+		{"fg-normal-last", func(b *StackBuffer) { b.FgColor(Color(7)) }, "\x1b[37m"},
+		{"fg-bright-first", func(b *StackBuffer) { b.FgColor(Color(8)) }, "\x1b[90m"},
+		{"fg-bright-last", func(b *StackBuffer) { b.FgColor(Color(15)) }, "\x1b[97m"},
+		{"fg-extended-first", func(b *StackBuffer) { b.FgColor(Color(16)) }, "\x1b[38;5;16m"},
+		{"bg-normal-last", func(b *StackBuffer) { b.BgColor(Color(7)) }, "\x1b[47m"},
+		{"bg-bright-first", func(b *StackBuffer) { b.BgColor(Color(8)) }, "\x1b[100m"},
+		{"bg-bright-last", func(b *StackBuffer) { b.BgColor(Color(15)) }, "\x1b[107m"},
+		{"bg-extended-first", func(b *StackBuffer) { b.BgColor(Color(16)) }, "\x1b[48;5;16m"},
+		{"fg-extended-last", func(b *StackBuffer) { b.FgColor(Color(255)) }, "\x1b[38;5;255m"},
+		{"bg-extended-last", func(b *StackBuffer) { b.BgColor(Color(255)) }, "\x1b[48;5;255m"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var sb StackBuffer
+			c.call(&sb)
+			if got := string(sb.Buffer[:sb.BufLen]); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// The >255 guard in writeEachByte cannot fire. Color is uint8, so a value above
+// 255 never reaches it - it is truncated at parseColorVal on the way in. This
+// asserts where the value actually changes, and logs the gap.
+func TestColorAbove255TruncatesAtTheConversion(t *testing.T) {
+	cases := []struct {
+		in   any
+		want Color
+	}{
+		{256, 0},
+		{300, 44},
+		{255, 255},
+	}
+
+	for _, c := range cases {
+		var col Color
+		var rgb ColorRGB
+		var set bool
+		parseColorVal(c.in, &col, &rgb, &set)
+		if col != c.want {
+			t.Errorf("got %d, want %d", col, c.want)
+		}
+	}
+
+	t.Log("known gap: 300 becomes 44 silently. The guard in writeEachByte is unreachable because Color is uint8; the check belongs in parseColorVal, where the value is converted.")
+}
