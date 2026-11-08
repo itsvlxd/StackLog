@@ -52,8 +52,26 @@ func TestPlainPresetEmitsNoANSI(t *testing.T) {
 		}
 	}
 
-	if got != "ERRO hi\n" {
-		t.Errorf("got %q, want %q", got, "ERRO hi\n")
+	if got != "error hi\n" {
+		t.Errorf("got %q, want %q", got, "error hi\n")
+	}
+}
+
+// A single label override stands against the preset. The other labels come from
+// the preset.
+func TestSingleLabelOverrideWinsAgainstPreset(t *testing.T) {
+	c := Config{Style: Style{
+		Preset:      PresetBadge,
+		LevelPrefix: [MaxLevel]string{"!!"},
+	}}
+	l := CreateLogger(c)
+
+	if l.Config.Style.LevelPrefix[0] != "!!" {
+		t.Errorf("the caller's label was replaced by the preset: got %q", l.Config.Style.LevelPrefix[0])
+	}
+
+	if l.Config.Style.LevelPrefix[3] != "ERR" {
+		t.Errorf("the preset did not fill an empty label: got %q", l.Config.Style.LevelPrefix[3])
 	}
 }
 
