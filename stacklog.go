@@ -80,6 +80,15 @@ type Style struct {
 	Level       [MaxLevel]CompStyle
 	Params      [MaxLevel]ParamsStyle
 	LevelPrefix [MaxLevel]string
+
+	// NoColors suppresses every escape sequence. It wins over every component, so a
+	// caller who sets a colour and sets this gets no colour. That is the precedence
+	// and it is stated here rather than discovered at the call site.
+	//
+	// Padding is not affected. Left and Right exist to sit inside a coloured block,
+	// and with no colour there is no block, so they become plain whitespace. That is
+	// an open decision, not a solved one.
+	NoColors bool
 }
 
 // ParamsStyle is the colour set for one key/value pair: the key, the separator,

@@ -33,10 +33,10 @@ func TestSingleComponentOverrideWinsAgainstPreset(t *testing.T) {
 	}
 }
 
-// A plain preset writes no escape sequence at all. Without the conditional reset
-// in addPostStyle this would still emit \x1b[0m after every component.
-func TestPlainPresetEmitsNoANSI(t *testing.T) {
-	l := CreateLogger(Config{Style: Style{Preset: PresetPlain}})
+// NoColors is the flag that owns "no colour", and it applies to any preset. It is
+// not a preset, because every preset carries a palette.
+func TestNoColorsEmitsNoANSI(t *testing.T) {
+	l := CreateLogger(Config{Style: Style{Preset: PresetMuted, NoColors: true}})
 
 	l.Buffer.Reset()
 	l.addLevelPrefix(3)
@@ -54,6 +54,27 @@ func TestPlainPresetEmitsNoANSI(t *testing.T) {
 
 	if got != "error hi\n" {
 		t.Errorf("got %q, want %q", got, "error hi\n")
+	}
+}
+
+// The flag wins over an explicit component. A caller who sets a colour and sets
+// NoColors gets no colour. That is the precedence, and it is asserted so it cannot
+// change silently.
+func TestNoColorsWinsOverAnExplicitStyle(t *testing.T) {
+	l := CreateLogger(Config{Style: Style{
+		NoColors: true,
+		Level:    [MaxLevel]CompStyle{NewStyle().Foreground("#D75F5F")},
+	}})
+
+	l.Buffer.Reset()
+	l.addLevelPrefix(0)
+	l.Buffer.WriteString("hi")
+	l.Buffer.WriteNL()
+
+	got := string(l.Buffer.Buffer[:l.Buffer.BufLen])
+
+	if got != "DEBU hi\n" {
+		t.Errorf("got %q, want %q", got, "DEBU hi\n")
 	}
 }
 
