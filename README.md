@@ -181,14 +181,33 @@ logger := stacklog.CreateLogger(stacklog.Config{
 logger.Error("upstream returned 502 for user:42")
 ```
 
-Four names, and an unknown name resolves to `PresetDefault`:
+Four names, and an unknown name resolves to `PresetDefault`. Every preset carries a palette.
 
 | Preset | What it is |
 |---|---|
 | `PresetDefault` | grey timestamp and prefix, coloured level text, four-letter labels |
-| `PresetPlain` | no colour at all, full-word labels. Writes no escape sequence, so a log file stays readable without a terminal |
+| `PresetMuted` | low-chroma palette, full-word labels. For long-running services and for output that ends up in a file |
 | `PresetBadge` | the level as a block — background colour, white text, padding inside the block, three-letter labels |
 | `PresetHighContrast` | bright colours for legibility, four-letter labels |
+
+`NoColors` is a flag, not a preset. It applies to any preset and writes no escape
+sequence at all:
+
+```go
+logger := stacklog.CreateLogger(stacklog.Config{
+	Style: stacklog.Style{Preset: stacklog.PresetMuted, NoColors: true},
+})
+
+logger.Warn("labels from the preset, no colour codes, no reset codes")
+```
+
+The flag wins over an explicit component. A caller who sets a colour and sets
+`NoColors` gets no colour. That is the precedence, and `TestNoColorsWinsOverAnExplicitStyle`
+asserts it so it cannot change silently.
+
+Padding is not affected by the flag. `Left` and `Right` exist to sit inside a
+coloured block, and with no colour there is no block, so they become plain
+whitespace. That is an open decision, not a solved one.
 
 A component you set yourself wins. The preset fills only what is left empty, so
 one override changes one component and the rest of the preset stands.
