@@ -1,3 +1,9 @@
+## [3.0.2](https://github.com/itsvlxd/StackLog/compare/v3.0.1...v3.0.2) (2026-11-08)
+
+### Bug Fixes
+
+* **buffer:** reserve the tail so a truncated line keeps its terminator ([e66ff4c](https://github.com/itsvlxd/StackLog/commit/e66ff4c2b52db4ad0f0529afc4ce83ba27fd221b))
+
 ## [3.0.1](https://github.com/itsvlxd/StackLog/compare/v3.0.0...v3.0.1) (2026-11-08)
 
 ### Bug Fixes
