@@ -105,35 +105,43 @@ func CreateLogger(config Config) *StackLog {
 	}
 
 	for i := LogLevel(0); i < MaxLevel; i++ {
-		config.Style.Level[i] = NewStyle().
-			Padding(levelPadding[i]).
-			Background(levelBgColor[i]).
-			Foreground(levelFgColor[i])
+		if (config.Style.Level[i] == CompStyle{}) {
+			config.Style.Level[i] = NewStyle().
+				Padding(levelPadding[i]).
+				Background(levelBgColor[i]).
+				Foreground(levelFgColor[i])
+		}
 
 		if i > 2 {
 			switch true {
 			case levelFgColor[i] != ColorReset:
-				config.Style.Params[i] = ParamsStyle{
-					Param: NewStyle().
-						Background(0).
-						Foreground(levelFgColor[i]),
-					Equal: grayFGStyle,
-					Value: whiteFGStyle,
+				if config.Style.Params[i] == (ParamsStyle{}) {
+					config.Style.Params[i] = ParamsStyle{
+						Param: NewStyle().
+							Background(0).
+							Foreground(levelFgColor[i]),
+						Equal: grayFGStyle,
+						Value: whiteFGStyle,
+					}
 				}
 			case levelBgColor[i] != ColorReset:
-				config.Style.Params[i] = ParamsStyle{
-					Param: NewStyle().
-						Background(0).
-						Foreground(levelBgColor[i]),
-					Equal: grayFGStyle,
-					Value: whiteFGStyle,
+				if config.Style.Params[i] == (ParamsStyle{}) {
+					config.Style.Params[i] = ParamsStyle{
+						Param: NewStyle().
+							Background(0).
+							Foreground(levelBgColor[i]),
+						Equal: grayFGStyle,
+						Value: whiteFGStyle,
+					}
 				}
 			}
 		} else {
-			config.Style.Params[i] = ParamsStyle{
-				Param: grayFGStyle,
-				Equal: grayFGStyle,
-				Value: whiteFGStyle,
+			if config.Style.Params[i] == (ParamsStyle{}) {
+				config.Style.Params[i] = ParamsStyle{
+					Param: grayFGStyle,
+					Equal: grayFGStyle,
+					Value: whiteFGStyle,
+				}
 			}
 		}
 
