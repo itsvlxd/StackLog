@@ -66,17 +66,6 @@ func (cs CompStyle) Background(val any) CompStyle {
 	return cs
 }
 
-// parseColorVal converts an accepted colour form into a colour index or an RGB
-// triple, and records that a colour was given.
-//
-// Two behaviours worth knowing:
-//
-//   - An unhandled type leaves the colour unchanged and clears the flag, so
-//     nothing is emitted. A hex string that is not valid falls back to white
-//     through HexToRGB, which cannot report failure.
-//   - "reset" clears the flag rather than setting a colour, so Foreground(ColorReset)
-//     means "nothing set". Black is Foreground(0), which is now reachable.
-//
 // clampColor brings a value into the range Color can hold. A value above 255 has
 // no colour meaning, so the closest valid answer is the top of the range. A
 // negative value is not a colour index, so it goes to the bottom. This replaces
@@ -91,6 +80,14 @@ func clampColor(v int64) Color {
 	return Color(v)
 }
 
+// parseColorVal converts an accepted colour form into a colour index or an RGB
+// triple and records that a colour was given. The caller-facing rules - clamping
+// and unhandled types - are documented on Foreground and Background, where a
+// developer meets them. What is specific to this function is stated here:
+//   - "reset" clears the flag rather than setting a colour, so ColorReset means
+//     "nothing set", not "reset to default". Black is 0.
+//   - A hex string that is not valid falls back to white through HexToRGB, which
+//     cannot report failure.
 func parseColorVal(val any, color *Color, rgb *ColorRGB, set *bool) {
 	switch c := val.(type) {
 	case int:
