@@ -96,19 +96,23 @@ func parseColorVal(val any, color *Color, rgb *ColorRGB, set *bool) {
 	}
 }
 
-// addColorStyle writes the escape sequences for a style into the buffer. A style
-// with no flag set emits nothing.
-//
-// shortcut: an RGB triple of {0,0,0} takes the index path, which renders the same
-// black through a different escape. Upgrade if the two forms ever need to be told
-// apart.
-func addColorStyle(buf *StackBuffer, style CompStyle) {
+// addColorStyle writes the escape sequences for a style into the buffer and
+// reports whether anything was written. That report is what decides the reset in
+// addPostStyle, so the gate is stated once here rather than at every call site.
+func (sl *StackLog) addColorStyle(buf *StackBuffer, style CompStyle) bool {
+	if sl.Config.Style.NoColors {
+		return false
+	}
+
+	wrote := false
+
 	if style.bgSet {
 		if style.bgRGB != (ColorRGB{}) {
 			buf.BgColor(style.bgRGB)
 		} else {
 			buf.BgColor(style.bg)
 		}
+		wrote = true
 	}
 
 	if style.fgSet {
@@ -117,7 +121,10 @@ func addColorStyle(buf *StackBuffer, style CompStyle) {
 		} else {
 			buf.FgColor(style.fg)
 		}
+		wrote = true
 	}
+
+	return wrote
 }
 
 // addPreStyle writes the opening half of a component: Top padding, colour, then
@@ -134,7 +141,7 @@ func (sl *StackLog) addPreStyle(style CompStyle) {
 	}
 	buf.lineStart = false
 
-	addColorStyle(buf, style)
+	sl.addColorStyle(buf, style)
 
 	if sp.Left > 0 {
 		for i := 0; i < sp.Left; i++ {
@@ -155,7 +162,7 @@ func (sl *StackLog) addPostStyle(style CompStyle) {
 	buf := sl.Buffer
 	sp := style.p
 
-	addColorStyle(buf, style)
+	wrote := sl.addColorStyle(buf, style)
 
 	if sp.Right > 0 {
 		for i := 0; i < sp.Right; i++ {
@@ -168,9 +175,8 @@ func (sl *StackLog) addPostStyle(style CompStyle) {
 	}
 
 	// The reset only belongs to a component that actually opened a colour. Without
-	// this, a style with nothing set still writes an escape sequence, and a plain
-	// preset is not plain.
-	if style.bgSet || style.fgSet {
+	// this, a style with nothing set still writes an escape sequence.
+	if wrote {
 		buf.ResetColor()
 	}
 }
