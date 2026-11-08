@@ -1,3 +1,21 @@
+## [2.0.0](https://github.com/itsvlxd/StackLog/compare/v1.0.1...v2.0.0) (2026-11-08)
+
+### ⚠ BREAKING CHANGES
+
+* **colors:** callers who used Background(0) as "no background" now get a black
+background. The predefined styles were changed to stop calling Background(0), so
+the package default is unchanged.
+
+addPostStyle writes the reset only for a component that actually opened a colour.
+Without this a style with nothing set still emits an escape sequence, which is what
+makes a plain preset plain.
+
+### Features
+
+* **colors:** stop overloading 0 as "not set" in CompStyle ([279653f](https://github.com/itsvlxd/StackLog/commit/279653f42bf6a8fac0b23d259d397be6b296f0c8))
+* **presets:** add named style presets and a Prefix field ([a278b92](https://github.com/itsvlxd/StackLog/commit/a278b92dd425b859885ae00591f31e8d69090f55))
+* **presets:** add per-preset level labels through Style.LevelPrefix ([0583c7a](https://github.com/itsvlxd/StackLog/commit/0583c7a3ee7fcc01578b84c62699869bee805ef6))
+
 ## [1.0.1](https://github.com/itsvlxd/StackLog/compare/v1.0.0...v1.0.1) (2026-11-08)
 
 ### Bug Fixes
