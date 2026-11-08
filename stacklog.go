@@ -13,8 +13,9 @@ import (
 // return new loggers rather than modifying the original. A base logger can be
 // shared and specialised per call site.
 //
-// Output is written into a fixed 1024-byte buffer. A value longer than the
-// remaining space is truncated silently.
+// Output is written into a fixed 1024-byte buffer. Content stops at 1020 bytes so
+// the tail can always carry the truncation marker and the line terminator. A value
+// longer than the remaining content space is cut, and the line ends with "...".
 type StackLog struct {
 	Config Config
 	Buffer *StackBuffer
@@ -302,6 +303,10 @@ func (sl *StackLog) print(level LogLevel, message string) error {
 	if len(sl.params) > 0 {
 		sl.addParams(level)
 	}
+
+	// The marker goes before the terminator. Both land in the reserved tail, so
+	// neither can be dropped by a full buffer.
+	sl.Buffer.markTruncated()
 
 	sl.Buffer.WriteNL()
 
