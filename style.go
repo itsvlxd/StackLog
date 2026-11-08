@@ -69,20 +69,41 @@ func (cs CompStyle) Background(val any) CompStyle {
 //     white through HexToRGB, which cannot report failure.
 //   - "reset" clears the flag rather than setting a colour, so Foreground(ColorReset)
 //     means "nothing set". Black is Foreground(0), which is now reachable.
+//
+// clampColor brings a value into the range Color can hold. A value above 255 has
+// no colour meaning, so the closest valid answer is the top of the range. A
+// negative value is not a colour index, so it goes to the bottom. This replaces
+// the silent wrap that Color(c) performed.
+func clampColor(v int64) Color {
+	if v > 255 {
+		return 255
+	}
+	if v < 0 {
+		return 0
+	}
+	return Color(v)
+}
+
 func parseColorVal(val any, color *Color, rgb *ColorRGB, set *bool) {
 	switch c := val.(type) {
 	case int:
-		*color, *set = Color(c), true
+		*color, *set = clampColor(int64(c)), true
 	case int32:
-		*color, *set = Color(c), true
+		*color, *set = clampColor(int64(c)), true
 	case int64:
-		*color, *set = Color(c), true
+		*color, *set = clampColor(c), true
 	case uint:
-		*color, *set = Color(c), true
+		*color, *set = clampColor(int64(c)), true
 	case uint32:
-		*color, *set = Color(c), true
+		*color, *set = clampColor(int64(c)), true
 	case uint64:
-		*color, *set = Color(c), true
+		// int64(c) would wrap for values above 2^63, so this one is checked
+		// before the conversion.
+		if c > 255 {
+			*color, *set = 255, true
+		} else {
+			*color, *set = Color(c), true
+		}
 	case Color:
 		*color, *set = c, true
 	case ColorRGB:
