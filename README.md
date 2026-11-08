@@ -25,6 +25,8 @@ dependency outside the standard library.
 ## Features
 
 - Fixed 1024-byte buffer, no growth, no reallocation
+- A line longer than the content area is cut and marked with `...`, and it keeps its
+  terminator so two log calls never merge
 - Zero allocations on the per-line path
 - Leveled logging: debug, info, warn, error, fatal
 - Key/value pairs written as `key=value`
