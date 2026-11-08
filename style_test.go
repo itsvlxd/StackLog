@@ -2,46 +2,49 @@ package stacklog
 
 import "testing"
 
-// The same conceptual colour, two different results, depending on the Go type
-// the caller happens to use. This is the real finding, not the +1 itself.
-func TestParseColorValIsTypeDependent(t *testing.T) {
+// The +1 shift is gone, so the Go type the caller uses no longer changes the
+// result. This is the test that would have caught the old inconsistency.
+func TestParseColorValIsConsistent(t *testing.T) {
 	cases := []struct {
 		name string
 		in   any
 		want Color
+		set  bool
 	}{
-		{"int-branch", 5, 5},
-		{"color-branch", Color(5), 6}, // +1: 0 is reserved as "not set"
-		{"int-zero", 0, 0},            // 0 means "not set" in addColorStyle
-		{"color-zero", Color(0), 1},
+		{"int-branch", 5, 5, true},
+		{"color-branch", Color(5), 5, true},
+		{"black-is-a-colour", Color(0), 0, true},
+		{"unhandled-type", 1.5, 0, false},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var col Color
 			var rgb ColorRGB
-			parseColorVal(c.in, &col, &rgb)
-			if col != c.want {
-				t.Errorf("got %d, want %d", col, c.want)
+			var set bool
+			parseColorVal(c.in, &col, &rgb, &set)
+			if col != c.want || set != c.set {
+				t.Errorf("got %d/%v, want %d/%v", col, set, c.want, c.set)
 			}
 		})
 	}
-
-	t.Log("known gap: Foreground(5) and Foreground(Color(5)) produce different colours")
 }
 
+// "reset" clears the flag rather than setting a colour, so Foreground(ColorReset)
+// means nothing set and the preset guard fills the component.
 func TestParseColorValReset(t *testing.T) {
 	var c Color = 9
 	var rgb ColorRGB
-	parseColorVal(ColorReset, &c, &rgb)
-	if c != 0 {
-		t.Errorf("got %d, want 0", c)
+	var set bool = true
+	parseColorVal(ColorReset, &c, &rgb, &set)
+	if c != 0 || set {
+		t.Errorf("got %d/%v, want 0/false", c, set)
 	}
 }
 
-// CreateLogger applies defaults only where the caller left a component unset.
-// Level is guarded per component. Params is guarded as a whole array. The two
-// rules are not the same, and these tests record what each one does.
+// CreateLogger applies the named preset, and a component the caller set is not
+// touched by it. These tests assert that a single override stands against a full
+// preset.
 
 func TestCallerStyleSurvivesCreateLogger(t *testing.T) {
 	c := Config{Style: Style{Level: [MaxLevel]CompStyle{NewStyle().Foreground("#D75F5F")}}}
@@ -52,7 +55,7 @@ func TestCallerStyleSurvivesCreateLogger(t *testing.T) {
 	}
 
 	if l.Config.Style.Level[1] == (CompStyle{}) {
-		t.Error("level 1 lost the package default")
+		t.Error("level 1 lost the preset")
 	}
 }
 
@@ -76,19 +79,28 @@ func TestPartialParamsStyle(t *testing.T) {
 			continue
 		}
 		if l.Config.Style.Params[i] == (ParamsStyle{}) {
-			t.Errorf("params %d lost the package default", i)
+			t.Errorf("params %d lost the preset", i)
 		}
 	}
 }
 
-// Foreground(ColorReset) sets the sentinel 0, which is the zero value, so the
-// guard cannot tell "not set" from "set to nothing". An explicit request for no
-// colour on a level is replaced by the default.
-func TestExplicitNoColourCannotBeExpressed(t *testing.T) {
+// Black is now a colour rather than the sentinel, so an explicit black is
+// expressible. Foreground(ColorReset) still means nothing set, so the guard fills
+// that component from the preset.
+func TestBlackIsExpressibleInForeground(t *testing.T) {
+	c := Config{Style: Style{Level: [MaxLevel]CompStyle{NewStyle().Foreground(Color(0))}}}
+	l := CreateLogger(c)
+
+	if !l.Config.Style.Level[0].fgSet || l.Config.Style.Level[0].fg != 0 {
+		t.Error("black was not kept as a colour")
+	}
+}
+
+func TestExplicitNoColourIsFilledByThePreset(t *testing.T) {
 	c := Config{Style: Style{Level: [MaxLevel]CompStyle{NewStyle().Foreground(ColorReset)}}}
 	l := CreateLogger(c)
 
-	if l.Config.Style.Level[0].fg == 0 {
-		t.Error("expected the guard to fire for an explicit no-colour request")
+	if l.Config.Style.Level[0] == (CompStyle{}) {
+		t.Error("the preset did not fill a component left unset by ColorReset")
 	}
 }
