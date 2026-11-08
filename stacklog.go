@@ -37,7 +37,6 @@ const (
 )
 
 var (
-	levelPrefix  [MaxLevel]string  = [MaxLevel]string{"DEBU", "INFO", "WARN", "ERRO", "FATA"}
 	levelFgColor [MaxLevel]any     = [MaxLevel]any{5, 6, 3, 1, 1}
 	levelPadding [MaxLevel]Padding = [MaxLevel]Padding{}
 )
@@ -67,12 +66,20 @@ type Config struct {
 // Preset names a base style. CreateLogger takes each component from the preset
 // only when that component is left as the zero value, so a component set here
 // overrides the preset on its own. An unknown name resolves to PresetDefault.
+//
+// LevelPrefix holds the text written for each level. It is text, not colour, but
+// it lives here so the same rule applies to it: a preset fills only the entries
+// left empty, so a single label can be overridden on its own.
+//
+// An empty string means "not set", so a preset cannot express an intentionally
+// empty label. That is the same class of problem as the colour sentinel.
 type Style struct {
-	Preset    string
-	Timestamp CompStyle
-	Prefix    CompStyle
-	Level     [MaxLevel]CompStyle
-	Params    [MaxLevel]ParamsStyle
+	Preset      string
+	Timestamp   CompStyle
+	Prefix      CompStyle
+	Level       [MaxLevel]CompStyle
+	Params      [MaxLevel]ParamsStyle
+	LevelPrefix [MaxLevel]string
 }
 
 // ParamsStyle is the colour set for one key/value pair: the key, the separator,
@@ -204,7 +211,7 @@ func (sl *StackLog) addLevelPrefix(level LogLevel) {
 	levelStyle := sl.Config.Style.Level[level]
 
 	sl.addPreStyle(levelStyle)
-	buf.WriteString(levelPrefix[level])
+	buf.WriteString(sl.Config.Style.LevelPrefix[level])
 	sl.addPostStyle(levelStyle)
 
 	buf.WriteBlank()
