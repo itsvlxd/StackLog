@@ -39,7 +39,6 @@ const (
 var (
 	levelPrefix  [MaxLevel]string  = [MaxLevel]string{"DEBU", "INFO", "WARN", "ERRO", "FATA"}
 	levelFgColor [MaxLevel]any     = [MaxLevel]any{5, 6, 3, 1, 1}
-	levelBgColor [MaxLevel]any     = [MaxLevel]any{ColorReset, ColorReset, ColorReset, ColorReset, ColorReset}
 	levelPadding [MaxLevel]Padding = [MaxLevel]Padding{}
 )
 
@@ -64,8 +63,14 @@ type Config struct {
 // caller can write [MaxLevel]CompStyle rather than a literal 5. Adding a level
 // changes that length, which is a breaking change for anyone constructing a
 // Style. See the MaxLevel card.
+//
+// Preset names a base style. CreateLogger takes each component from the preset
+// only when that component is left as the zero value, so a component set here
+// overrides the preset on its own. An unknown name resolves to PresetDefault.
 type Style struct {
+	Preset    string
 	Timestamp CompStyle
+	Prefix    CompStyle
 	Level     [MaxLevel]CompStyle
 	Params    [MaxLevel]ParamsStyle
 }
@@ -79,16 +84,12 @@ type ParamsStyle struct {
 }
 
 // Predefined styles
-var whiteFGStyle = NewStyle().
-	Background(0).
-	Foreground(15)
+var whiteFGStyle = NewStyle().Foreground(15)
 
-var grayFGStyle = NewStyle().
-	Background(0).
-	Foreground(242)
+var grayFGStyle = NewStyle().Foreground(242)
 
 // CreateLogger returns a logger for the given config. Every part left empty is
-// filled with the package default for that component.
+// filled from the named preset, which falls back to PresetDefault.
 //
 // The returned logger writes to os.Stdout.
 func CreateLogger(config Config) *StackLog {
@@ -99,54 +100,7 @@ func CreateLogger(config Config) *StackLog {
 		config.TimeFormat = time.DateTime
 	}
 
-	if (config.Style.Timestamp == CompStyle{}) {
-		config.Style.Timestamp = NewStyle().
-			// Padding(Padding{Left: 1, Right: 1}).
-			Foreground(242)
-	}
-
-	for i := LogLevel(0); i < MaxLevel; i++ {
-		if (config.Style.Level[i] == CompStyle{}) {
-			config.Style.Level[i] = NewStyle().
-				Padding(levelPadding[i]).
-				Background(levelBgColor[i]).
-				Foreground(levelFgColor[i])
-		}
-
-		if i > 2 {
-			switch true {
-			case levelFgColor[i] != ColorReset:
-				if config.Style.Params[i] == (ParamsStyle{}) {
-					config.Style.Params[i] = ParamsStyle{
-						Param: NewStyle().
-							Background(0).
-							Foreground(levelFgColor[i]),
-						Equal: grayFGStyle,
-						Value: whiteFGStyle,
-					}
-				}
-			case levelBgColor[i] != ColorReset:
-				if config.Style.Params[i] == (ParamsStyle{}) {
-					config.Style.Params[i] = ParamsStyle{
-						Param: NewStyle().
-							Background(0).
-							Foreground(levelBgColor[i]),
-						Equal: grayFGStyle,
-						Value: whiteFGStyle,
-					}
-				}
-			}
-		} else {
-			if config.Style.Params[i] == (ParamsStyle{}) {
-				config.Style.Params[i] = ParamsStyle{
-					Param: grayFGStyle,
-					Equal: grayFGStyle,
-					Value: whiteFGStyle,
-				}
-			}
-		}
-
-	}
+	loadPreset(&config.Style)
 
 	return &StackLog{Config: config, Buffer: sb, wr: os.Stdout}
 }
@@ -259,9 +213,11 @@ func (sl *StackLog) addLevelPrefix(level LogLevel) {
 func (sl *StackLog) addLoggerPrefix() {
 	buf := sl.Buffer
 
-	sl.addPreStyle(grayFGStyle)
+	style := sl.Config.Style.Prefix
+
+	sl.addPreStyle(style)
 	buf.WriteString(sl.prefix + ":")
-	sl.addPostStyle(grayFGStyle)
+	sl.addPostStyle(style)
 
 	buf.WriteBlank()
 }
