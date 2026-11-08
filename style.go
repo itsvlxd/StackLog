@@ -45,6 +45,13 @@ func (cs CompStyle) Padding(p Padding) CompStyle {
 
 // Foreground sets the foreground colour and returns the modified copy. val is
 // accepted as a numeric colour index, a Color, a ColorRGB, or a hex string.
+//
+// Two behaviours a caller can rely on:
+//   - A numeric value outside 0-255 is clamped to the nearest valid end, not
+//     wrapped. 300 becomes 255, -1 becomes 0.
+//   - A type that is not one of the accepted forms leaves the style unchanged and
+//     nothing is emitted. There is no error path, because a style builder has
+//     nowhere to return one and a logger should not panic on a bad input.
 func (cs CompStyle) Foreground(val any) CompStyle {
 	parseColorVal(val, &cs.fg, &cs.fgRGB, &cs.fgSet)
 
@@ -52,7 +59,7 @@ func (cs CompStyle) Foreground(val any) CompStyle {
 }
 
 // Background sets the background colour and returns the modified copy. Same
-// accepted forms as Foreground.
+// accepted forms and the same clamping as Foreground.
 func (cs CompStyle) Background(val any) CompStyle {
 	parseColorVal(val, &cs.bg, &cs.bgRGB, &cs.bgSet)
 
@@ -64,9 +71,9 @@ func (cs CompStyle) Background(val any) CompStyle {
 //
 // Two behaviours worth knowing:
 //
-//   - There is no default branch, so an unhandled type leaves the colour
-//     unchanged and the flag unset. A hex string that is not valid falls back to
-//     white through HexToRGB, which cannot report failure.
+//   - An unhandled type leaves the colour unchanged and clears the flag, so
+//     nothing is emitted. A hex string that is not valid falls back to white
+//     through HexToRGB, which cannot report failure.
 //   - "reset" clears the flag rather than setting a colour, so Foreground(ColorReset)
 //     means "nothing set". Black is Foreground(0), which is now reachable.
 //
