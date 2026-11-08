@@ -8,7 +8,7 @@ import (
 
 func main() {
 	// 1. Default config, every level.
-	base := stacklog.CreateLogger(stacklog.Config{})
+	base := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{NoColors: true}})
 
 	base.Debug("default config, debug level")
 	base.Info("default config, info level")
@@ -22,6 +22,7 @@ func main() {
 		Timestamp:  true,
 		TimeFormat: "15:04:05",
 		Style: stacklog.Style{
+			NoColors:  true,
 			Timestamp: stacklog.NewStyle().Foreground("#666666"),
 
 			Level: [stacklog.MaxLevel]stacklog.CompStyle{
@@ -72,10 +73,16 @@ func main() {
 	preset.Debug("level 0 is the caller's override, not the preset")
 	preset.Error("badge: the level is a block, with padding inside it")
 
-	// Plain sets nothing, so no escape sequence is written at all. This is the one
-	// that makes a log file readable without a terminal.
-	plain := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{Preset: stacklog.PresetPlain}})
-	plain.Warn("no colour codes and no reset codes")
+	// Muted is the low-chroma palette for long-running services and for output that
+	// ends up in a file. Full-word labels.
+	muted := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{Preset: stacklog.PresetMuted}})
+	muted.Warn("low-chroma palette, full-word labels")
+
+	// NoColors is a flag, not a preset. It applies to any preset and writes no
+	// escape sequence at all. It wins over an explicit component, so a caller who
+	// sets a colour and sets this gets nothing.
+	plain := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{Preset: stacklog.PresetMuted, NoColors: true}})
+	plain.Warn("muted labels, no colour codes, no reset codes")
 
 	// The prefix is styled through Style.Prefix. Before that field existed the
 	// prefix colour was hardcoded, so a preset could not reach it.

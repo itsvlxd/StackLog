@@ -3,16 +3,18 @@ package stacklog
 // Preset names. An unknown name resolves to PresetDefault.
 const (
 	PresetDefault      = "default"
-	PresetPlain        = "plain"
+	PresetMuted        = "muted"
 	PresetBadge        = "badge"
 	PresetHighContrast = "high-contrast"
 )
 
 // presets maps a name to a builder. Each returns a fresh Style, so a caller can
 // take one and modify a component without touching a shared value.
+// Every preset carries a palette. "no colour" is not a preset - it is the
+// NoColors flag, which is a different kind of decision and applies to any preset.
 var presets = map[string]func() Style{
 	PresetDefault:      defaultPreset,
-	PresetPlain:        plainPreset,
+	PresetMuted:        mutedPreset,
 	PresetBadge:        badgePreset,
 	PresetHighContrast: highContrastPreset,
 }
@@ -72,14 +74,29 @@ func defaultPreset() Style {
 	return s
 }
 
-// plainPreset sets no colours. With no flag set, addColorStyle emits nothing and
-// addPostStyle does not write a reset, so the line is plain text.
-//
-// Full words rather than codes, because plain output is usually written to a file
-// and read without a terminal. The words are not the same length, so the message
-// column shifts. Accepted here: a plain line is not meant to be aligned.
-func plainPreset() Style {
-	return Style{LevelPrefix: [MaxLevel]string{"debug", "info", "warn", "error", "fatal"}}
+// mutedPreset is the low-chroma palette for long-running services and for output
+// that ends up in a file. Full-word labels, because a file is read without a
+// terminal. The words are not the same length, so the message column shifts.
+// Accepted here: this preset is not meant to be aligned.
+func mutedPreset() Style {
+	muted := [MaxLevel]Color{245, 110, 180, 174, 138}
+
+	s := Style{
+		Timestamp:   NewStyle().Foreground(245),
+		Prefix:      NewStyle().Foreground(245),
+		LevelPrefix: [MaxLevel]string{"debug", "info", "warn", "error", "fatal"},
+	}
+
+	for i := LogLevel(0); i < MaxLevel; i++ {
+		s.Level[i] = NewStyle().Foreground(muted[i])
+		s.Params[i] = ParamsStyle{
+			Param: NewStyle().Foreground(muted[i]),
+			Equal: NewStyle().Foreground(240),
+			Value: NewStyle().Foreground(250),
+		}
+	}
+
+	return s
 }
 
 // badgePreset renders the level as a block: the level colour becomes the
