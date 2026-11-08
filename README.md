@@ -29,6 +29,7 @@ dependency outside the standard library.
 - Leveled logging: debug, info, warn, error, fatal
 - Key/value pairs written as `key=value`
 - Per-level colours and per-pair styles
+- Named style presets, with a single component override standing against the preset
 - Colour index, 256-colour, truecolour hex, and background colours
 - Padding around a line, including coloured blocks
 - Optional prefix and timestamp
@@ -136,8 +137,8 @@ stacklog.NewStyle().Background(stacklog.ColorReset)
 ```
 
 A style can be set through `Config` at creation, or on the logger after. A
-component left as the zero value falls back to the package default for that
-component.
+component left as the zero value falls back to the named preset, which is the
+package palette when no preset is given.
 
 Per-level and per-pair styles:
 
@@ -161,7 +162,65 @@ styled.WithParams("user", "vlad").Error("upstream returned 502 for user:42")
 > `ParamsStyle` block controls.
 
 > `HexToRGB` accepts only `#RRGGBB`. Any other input returns white. `Color(0)` is
-> used as the "not set" sentinel, so black cannot be set through a colour index.
+> black, not a sentinel — the "not set" state is carried separately, so a style
+> that sets nothing emits no escape sequence.
+
+### Presets
+
+A preset is a complete style: colours, padding, and the level labels. Pick one by
+name, and override a single component on top of it.
+
+```go
+logger := stacklog.CreateLogger(stacklog.Config{
+	Timestamp: true,
+	Style: stacklog.Style{
+		Preset: stacklog.PresetBadge,
+	},
+})
+
+logger.Error("upstream returned 502 for user:42")
+```
+
+Four names, and an unknown name resolves to `PresetDefault`:
+
+| Preset | What it is |
+|---|---|
+| `PresetDefault` | grey timestamp and prefix, coloured level text, four-letter labels |
+| `PresetPlain` | no colour at all, full-word labels. Writes no escape sequence, so a log file stays readable without a terminal |
+| `PresetBadge` | the level as a block — background colour, white text, padding inside the block, three-letter labels |
+| `PresetHighContrast` | bright colours for legibility, four-letter labels |
+
+A component you set yourself wins. The preset fills only what is left empty, so
+one override changes one component and the rest of the preset stands.
+
+```go
+styled := stacklog.CreateLogger(stacklog.Config{
+	Style: stacklog.Style{
+		Preset: stacklog.PresetBadge,
+		Level: [stacklog.MaxLevel]stacklog.CompStyle{
+			stacklog.NewStyle().Foreground("#FFFFFF").Background("#D75F5F"),
+		},
+		LevelPrefix: [stacklog.MaxLevel]string{"!!"},
+	},
+})
+
+styled.Error("only level 0 is the override, the rest comes from the preset")
+```
+
+The logger prefix is styled through `Style.Prefix`. It used to be hardcoded, so a
+preset could not reach it.
+
+> A preset cannot express an intentionally empty label, because an empty string
+> means "not set". Same class of problem as the colour sentinel.
+
+> `PresetHighContrast` uses indices 17 and above only. Indices 9 to 16 are broken
+> in `writeColor`, so a bright palette cannot use the natural range yet.
+
+> The `PresetPlain` labels are not the same length, so the message column shifts.
+> Accepted here: a plain line is not meant to be aligned.
+
+> `ParamsStyle` is guarded as a whole triple, not as `Param`, `Equal` and `Value`
+> separately. Setting one of them means the other two stay empty and emit nothing.
 
 ### Padding
 
