@@ -1,3 +1,10 @@
+## [3.0.1](https://github.com/itsvlxd/StackLog/compare/v3.0.0...v3.0.1) (2026-11-08)
+
+### Bug Fixes
+
+* **colors:** correct the ANSI16 boundaries ([9c2e736](https://github.com/itsvlxd/StackLog/commit/9c2e7365d1f5907bce635372d6d7b1f576f840b9))
+* **style:** clamp colour values to the range Color can hold ([5e4565a](https://github.com/itsvlxd/StackLog/commit/5e4565a05a9dde2a36b01e26c231adbaab000e85))
+
 ## [3.0.0](https://github.com/itsvlxd/StackLog/compare/v2.0.0...v3.0.0) (2026-11-08)
 
 ### ⚠ BREAKING CHANGES
