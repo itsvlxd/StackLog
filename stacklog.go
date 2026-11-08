@@ -60,9 +60,10 @@ type Config struct {
 // Style holds the colours for each component of a line. Set a style with
 // NewStyle and the builder methods rather than by assigning the fields.
 //
-// The Level and Params arrays have length maxLevel, which is 5. From outside the
-// package you must write that length explicitly when constructing a Style,
-// because maxLevel is not exported.
+// The Level and Params arrays have length MaxLevel, which is exported, so a
+// caller can write [MaxLevel]CompStyle rather than a literal 5. Adding a level
+// changes that length, which is a breaking change for anyone constructing a
+// Style. See the MaxLevel card.
 type Style struct {
 	Timestamp CompStyle
 	Level     [MaxLevel]CompStyle
