@@ -1,3 +1,14 @@
+## [3.0.0](https://github.com/itsvlxd/StackLog/compare/v2.0.0...v3.0.0) (2026-11-08)
+
+### ⚠ BREAKING CHANGES
+
+* **presets:** stacklog.PresetPlain is removed and replaced by PresetMuted. It
+was released in 2.0.0, so anyone using it by name breaks.
+
+### Features
+
+* **presets:** every preset carries a palette, and NoColors owns the flag ([ad179a8](https://github.com/itsvlxd/StackLog/commit/ad179a825ee5baa5205b791aa4329f693de098f5))
+
 ## [2.0.0](https://github.com/itsvlxd/StackLog/compare/v1.0.1...v2.0.0) (2026-11-08)
 
 ### ⚠ BREAKING CHANGES
