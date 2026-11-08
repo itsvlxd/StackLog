@@ -104,3 +104,17 @@ func TestExplicitNoColourIsFilledByThePreset(t *testing.T) {
 		t.Error("the preset did not fill a component left unset by ColorReset")
 	}
 }
+
+// An unhandled type must leave the style unchanged and the flag clear, so nothing
+// is emitted. Asserted for the forms a caller is most likely to pass by mistake.
+func TestParseColorValUnhandledTypesLeaveNothing(t *testing.T) {
+	for _, in := range []any{1.5, true, nil, []int{1}, uint16(300)} {
+		var col Color = 7
+		var rgb ColorRGB
+		var set bool = true
+		parseColorVal(in, &col, &rgb, &set)
+		if set {
+			t.Errorf("%T left the flag set", in)
+		}
+	}
+}
