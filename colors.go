@@ -67,7 +67,7 @@ func (sb *StackBuffer) writeColor(target colorTarget, c Color) *StackBuffer {
 	sb.AppendByte('[')
 
 	switch true {
-	case c > 16:
+	case c >= 16:
 		// ANSI256 - \x1b[38;5;166m
 		var ansiTarget Color
 
@@ -80,21 +80,17 @@ func (sb *StackBuffer) writeColor(target colorTarget, c Color) *StackBuffer {
 		sb.writeEachByte(ansiTarget)
 		sb.WriteString(";5;")
 		sb.writeEachByte(c)
-	case c > 8:
+	case c >= 8:
 		// ANSI16 - \x1b[42m
-		if initColor >= 9 && initColor <= 16 {
-			initColor -= 8
-		}
-
 		var ansiBase Color
 		if target == TargetFG {
-			if initColor > 8 {
+			if initColor > 7 {
 				ansiBase = 90
 			} else {
 				ansiBase = 30
 			}
 		} else {
-			if initColor > 8 {
+			if initColor > 7 {
 				ansiBase = 100
 			} else {
 				ansiBase = 40
