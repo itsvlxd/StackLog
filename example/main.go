@@ -15,16 +15,16 @@ func main() {
 	base.Warn("default config, warn level")
 	base.Error("default config, error level")
 
-	// 2. A full style set passed through Config.
-	//    Style arrays are sized by maxLevel, which is unexported, so from outside
-	//    the package the length has to be written as 5.
+	// 2. A full style set passed through Config. A component left as the zero
+	//    value falls back to the package default for that component.
+	//    The arrays are sized by MaxLevel, which is exported.
 	custom := stacklog.CreateLogger(stacklog.Config{
 		Timestamp:  true,
 		TimeFormat: "15:04:05",
 		Style: stacklog.Style{
 			Timestamp: stacklog.NewStyle().Foreground("#666666"),
 
-			Level: [5]stacklog.CompStyle{
+			Level: [stacklog.MaxLevel]stacklog.CompStyle{
 				stacklog.NewStyle().Foreground("#888888"),                                              // debug
 				stacklog.NewStyle().Foreground("#5F87D7"),                                              // info
 				stacklog.NewStyle().Foreground("#D7AF5F"),                                              // warn
@@ -32,7 +32,7 @@ func main() {
 				stacklog.NewStyle().Foreground("#FFFFFF").Background("#D75F5F"),                        // fatal
 			},
 
-			Params: [5]stacklog.ParamsStyle{
+			Params: [stacklog.MaxLevel]stacklog.ParamsStyle{
 				{},
 				{
 					Param: stacklog.NewStyle().Foreground("#5F87D7"),
