@@ -16,6 +16,16 @@
 // Left and Right are spaces written inside the coloured block, so a badge with a
 // background extends over them.
 //
+// A style can be set component by component, or taken from a named preset. A preset
+// is a complete style: colours, padding, and the level labels. CreateLogger applies
+// the preset only to the components left as the zero value, so a single component
+// override stands against the whole preset. An unknown name resolves to the default.
+//
+// NoColors is a flag, not a preset. It suppresses every escape sequence for any
+// preset, and it wins over an explicit component - a caller who sets a colour and
+// sets NoColors gets no colour. That is the precedence, and it is asserted in a
+// test so it cannot change silently.
+//
 // A logger is cheap to derive. WithParams, WithPrefix and WithWriter return new
 // loggers and never modify the original, so one base logger can be shared and
 // specialised per call site. Because the copy takes its own Config, set the style
