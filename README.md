@@ -135,6 +135,10 @@ stacklog.NewStyle().Foreground("#D75F5F")            // truecolour hex
 stacklog.NewStyle().Background(stacklog.ColorReset)
 ```
 
+A style can be set through `Config` at creation, or on the logger after. A
+component left as the zero value falls back to the package default for that
+component.
+
 Per-level and per-pair styles:
 
 ```go
