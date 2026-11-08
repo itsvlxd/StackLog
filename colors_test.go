@@ -101,28 +101,32 @@ func TestColorBoundaries(t *testing.T) {
 	}
 }
 
-// The >255 guard in writeEachByte cannot fire. Color is uint8, so a value above
-// 255 never reaches it - it is truncated at parseColorVal on the way in. This
-// asserts where the value actually changes, and logs the gap.
-func TestColorAbove255TruncatesAtTheConversion(t *testing.T) {
+// Values outside the range Color can hold are clamped, not wrapped. A value above
+// 255 has no colour meaning, so the closest valid answer is the top of the range;
+// a negative value is not a colour index at all, so it goes to the bottom.
+func TestColorValuesAreClampedNotWrapped(t *testing.T) {
 	cases := []struct {
 		in   any
 		want Color
 	}{
-		{256, 0},
-		{300, 44},
+		{300, 255},
+		{256, 255},
 		{255, 255},
+		{0, 0},
+		{-1, 0},
+		{int64(1 << 40), 255},
+		{uint64(1 << 63), 255},
 	}
 
 	for _, c := range cases {
-		var col Color
+		var col Color = 7
 		var rgb ColorRGB
 		var set bool
 		parseColorVal(c.in, &col, &rgb, &set)
-		if col != c.want {
-			t.Errorf("got %d, want %d", col, c.want)
+		if col != c.want || !set {
+			t.Errorf("%v: got %d/%v, want %d/true", c.in, col, set, c.want)
 		}
 	}
 
-	t.Log("known gap: 300 becomes 44 silently. The guard in writeEachByte is unreachable because Color is uint8; the check belongs in parseColorVal, where the value is converted.")
+	t.Log("clamping is a contract now: a value outside 0-255 resolves to the nearest valid end rather than wrapping.")
 }
