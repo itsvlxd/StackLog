@@ -93,6 +93,13 @@ func parseColorVal(val any, color *Color, rgb *ColorRGB, set *bool) {
 		} else {
 			*rgb, *set = HexToRGB(c), true
 		}
+	default:
+		// An unhandled type leaves the colour unchanged and clears the flag, so
+		// nothing is emitted. A colour setter has nowhere to return an error, and a
+		// logger should not panic on a bad input, so leaving it unset is the only
+		// safe behaviour available. Stated here so it is a contract rather than an
+		// accident of an omitted case.
+		*set = false
 	}
 }
 
