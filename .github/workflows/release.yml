@@ -144,7 +144,7 @@ jobs:
 
           `stacklog` writes one line per call into a fixed, pre-allocated buffer and flushes it in a single write.
 
-          Stable releases are built from `main` and contain only changes that passed the tests workflow. A `v1.0.0` tag means the public API will not break.
+          Stable releases are built from `main` and contain only changes that passed the tests workflow.
 
           If you encounter any issues, report them on the [issue tracker](https://github.com/${{ github.repository }}/issues).
 
