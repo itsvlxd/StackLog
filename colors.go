@@ -169,6 +169,9 @@ func HexToRGB(hex string) ColorRGB {
 	return ColorRGB{R: r, G: g, B: b}
 }
 
+// ResetColor writes the ANSI reset sequence. It is written by addPostStyle at the
+// end of every component that opened a colour, which is why each line ends clean
+// and the next line starts from a known state. Callers do not normally need it.
 func (sb *StackBuffer) ResetColor() *StackBuffer {
 	sb.AppendByte(0x1b)
 	sb.AppendByte('[')
@@ -178,6 +181,9 @@ func (sb *StackBuffer) ResetColor() *StackBuffer {
 	return sb
 }
 
+// FgColor writes the escape sequence for a foreground colour. val is a Color index
+// or a ColorRGB triple; any other type writes nothing at all. Indices 0-7 are the
+// base colours, 8-15 the bright variants, 16-255 the 256-colour palette.
 func (sb *StackBuffer) FgColor(val any) *StackBuffer {
 	switch c := val.(type) {
 	case Color:
@@ -189,6 +195,8 @@ func (sb *StackBuffer) FgColor(val any) *StackBuffer {
 	}
 }
 
+// BgColor writes the escape sequence for a background colour. Same accepted forms
+// and the same index mapping as FgColor, against the 40-47 and 100-107 ranges.
 func (sb *StackBuffer) BgColor(val any) *StackBuffer {
 	switch c := val.(type) {
 	case Color:
