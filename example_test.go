@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/itsvlxd/stacklog"
+	"github.com/itsvlxd/stacklog/v2"
 )
 
 // Every assertable example here sets NoColors. An `// Output:` block must match the
