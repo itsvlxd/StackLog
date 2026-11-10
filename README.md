@@ -9,7 +9,7 @@ growth, no allocation on the per-line path.
   <img alt="Release" src="https://img.shields.io/github/v/release/itsvlxd/stacklog?style=for-the-badge&labelColor=0a0a0a&color=00ADD8&prefix=v">
   <img alt="Go 1.27" src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge">
   <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/itsvlxd/stacklog/tests.yml?style=for-the-badge&labelColor=0a0a0a&label=Tests&color=00ADD8">
-  <a href="https://pkg.go.dev/github.com/itsvlxd/stacklog/v2"><img alt="pkg.go.dev" src="https://img.shields.io/badge/pkg.go.dev-reference-00ADD8?style=for-the-badge"></a>
+  <a href="https://pkg.go.dev/github.com/itsvlxd/stacklog"><img alt="pkg.go.dev" src="https://img.shields.io/badge/pkg.go.dev-reference-00ADD8?style=for-the-badge"></a>
 </p>
 
 </div>
@@ -41,7 +41,7 @@ dependency outside the standard library.
 ## Installation
 
 ```bash
-go get github.com/itsvlxd/stacklog/v2
+go get github.com/itsvlxd/stacklog
 ```
 
 ## Getting started
@@ -54,7 +54,7 @@ runs these examples as one session from a single service.
 ```go
 package main
 
-import "github.com/itsvlxd/stacklog/v2"
+import "github.com/itsvlxd/stacklog"
 
 func main() {
 	logger := stacklog.CreateLogger(stacklog.Config{})
@@ -293,7 +293,7 @@ package main
 import (
 	"os"
 
-	"github.com/itsvlxd/stacklog/v2"
+	"github.com/itsvlxd/stacklog"
 )
 
 func main() {

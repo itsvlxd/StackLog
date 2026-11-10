@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/itsvlxd/stacklog/v2"
+	"github.com/itsvlxd/stacklog"
 )
 
 func main() {

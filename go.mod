@@ -1,3 +1,3 @@
-module github.com/itsvlxd/stacklog/v2
+module github.com/itsvlxd/stacklog
 
 go 1.27
