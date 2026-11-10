@@ -1,3 +1,9 @@
+## [1.2.1](https://github.com/itsvlxd/StackLog/compare/v1.2.0...v1.2.1) (2026-11-10)
+
+### Bug Fixes
+
+* **log:** flush a buffered writer before Fatal exits ([e388afa](https://github.com/itsvlxd/StackLog/commit/e388afaa60325dcf104e77369b64e779f59a727c)), closes [#11](https://github.com/itsvlxd/StackLog/issues/11)
+
 ## [1.2.0](https://github.com/itsvlxd/StackLog/compare/v1.1.3...v1.2.0) (2026-11-10)
 
 ### Features
