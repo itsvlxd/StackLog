@@ -1,3 +1,9 @@
+## [1.1.2](https://github.com/itsvlxd/StackLog/compare/v1.1.1...v1.1.2) (2026-11-10)
+
+### Bug Fixes
+
+* **buffer:** give each derived logger its own buffer ([7f3c4c1](https://github.com/itsvlxd/StackLog/commit/7f3c4c18d4c2215803927d424ba617305e87a492)), closes [#12](https://github.com/itsvlxd/StackLog/issues/12)
+
 ## [1.1.1](https://github.com/itsvlxd/StackLog/compare/v1.1.0...v1.1.1) (2026-11-10)
 
 ### Bug Fixes
