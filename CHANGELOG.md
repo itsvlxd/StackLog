@@ -2,9 +2,12 @@
 
 ### ⚠ BREAKING CHANGES
 
-* **module:** the import path is now github.com/itsvlxd/stacklog/v2.
+* **module:** the import path moved to github.com/itsvlxd/stacklog/v2 and moved
+back the same day. It is github.com/itsvlxd/stacklog. Anything pinned to
+v2.0.0 during those 45 minutes has to move back to the unsuffixed path.
 * **presets:** stacklog.PresetPlain is removed and replaced by PresetMuted. It
-was released in 2.0.0, so anyone using it by name breaks.
+was named in a release that was withdrawn the same day, so nobody can be using
+it by name.
 * **colors:** callers who used Background(0) as "no background" now get a black
 background. The predefined styles were changed to stop calling Background(0), so
 the package default is unchanged.
