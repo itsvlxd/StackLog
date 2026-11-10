@@ -46,8 +46,8 @@ go get github.com/itsvlxd/stacklog
 
 ## Getting started
 
-The images below are terminal captures produced by `go run ./example/readme`, which
-runs these examples as one session from a single service.
+The images below are terminal captures of the examples on this page, run as one
+session from a single service.
 
 ### Simple logging example
 
@@ -123,6 +123,12 @@ prefixed.Error("handler entered, upstream slow")
 
 `WithParams`, `WithPrefix` and `WithWriter` return new loggers. The original is
 never modified, so a base logger can be shared and specialised per call site.
+
+> Each derived logger owns its own buffer, so deriving one per goroutine is the
+> safe pattern. Calling the same logger from two goroutines is not safe, and no
+> lock guards a logger. A derived logger shares its writer, so a writer used by
+> several loggers has to be safe for concurrent use in its own right: `os.Stdout`
+> is, a `bytes.Buffer` is not.
 
 > Because the copy takes its own `Config`, a style change made after the copy does
 > not reach the copy. Set the style first, then derive the logger.
@@ -234,11 +240,13 @@ preset could not reach it.
 > A preset cannot express an intentionally empty label, because an empty string
 > means "not set". Same class of problem as the colour sentinel.
 
-> `PresetHighContrast` uses indices 17 and above only. Indices 9 to 16 are broken
-> in `writeColor`, so a bright palette cannot use the natural range yet.
+> Indices 8 to 15 take the bright ANSI range — 90 to 97 for the foreground and
+> 100 to 107 for the background — and 16 and above are written through the
+> 256-colour form. `PresetHighContrast` chooses from the 256-colour range.
 
-> The `PresetPlain` labels are not the same length, so the message column shifts.
-> Accepted here: a plain line is not meant to be aligned.
+> The `PresetMuted` labels are full words — `debug`, `info`, `warn`, `error`,
+> `fatal` — so they are not the same length and the message column shifts between
+> levels. Accepted here: a muted line is not meant to be aligned.
 
 > `ParamsStyle` is guarded as a whole triple, not as `Param`, `Equal` and `Value`
 > separately. Setting one of them means the other two stay empty and emit nothing.
@@ -324,8 +332,9 @@ Contents of `readme-example.log`:
 
 ```
 
-> There is no terminal detection. Colours are always written, so a log file
-> contains ANSI codes. If you want plain output, that is a feature to add.
+> There is no terminal detection. Colours are written unless `Style.NoColors` is
+> set, so a log file contains ANSI codes by default. For plain output, set
+> `NoColors`.
 
 ### Handling write errors
 
@@ -368,16 +377,19 @@ not flushed.
 go test -bench . -benchmem
 ```
 
-Both loggers writing to `io.Discard`, same shape of work. Measured on an
-i9-12900KS with Go 1.27.3.
+Measured on an i9-12900KS, 24 logical processors, with Go 1.27.3.
 
 ```text
-BenchmarkStackLog    104.2 ns/op    0 B/op    0 allocs/op
-BenchmarkSlog        348.6 ns/op    0 B/op    0 allocs/op
+BenchmarkRenderPath-24      78.4 ns/op    0 B/op    0 allocs/op
+BenchmarkSlogToDiscard-24  347.0 ns/op    0 B/op    0 allocs/op
 ```
 
-`stacklog` writes ANSI colour; `log/slog`'s text handler does not, so this is not
-identical work. The `allocs/op` result is the stable part — time depends on the
-machine.
+These are not the same shape of work and are not a comparison. `RenderPath`
+builds a line — level label, message, one key/value pair — and never flushes, so
+it measures the formatting only. `SlogToDiscard` is a complete `log/slog` call
+written to `io.Discard`. For a fair head to head, this logger has to be benched
+writing to a discarded writer as well, and it is not yet.
+
+The `allocs/op` result is the claim that holds across machines. Time does not.
 
 `CreateLogger` allocates, and so does `WithParams`. The per-line path does not.
