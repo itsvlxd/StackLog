@@ -39,6 +39,12 @@ jobs:
       # The preset is not a plugin, but commit-analyzer resolves it through the
       # action's node_modules, so it has to be installed here too. Pin it: v10
       # of the preset renders empty release notes under release-notes-generator v14.
+      #
+      # releaseRules in .releaserc maps a breaking change to a minor bump, so this
+      # package never produces a major. go.mod declares no /vN suffix, and Go
+      # rejects any v2+ tag without the matching suffix - a major here would be
+      # published as a tag nobody can install. Do not remove that rule before
+      # go.mod carries the suffix it would need.
       - name: Semantic release
         id: semantic
         uses: cycjimmy/semantic-release-action@v6
