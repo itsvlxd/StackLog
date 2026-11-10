@@ -92,7 +92,7 @@ type halfWriter struct{}
 
 func (halfWriter) Write(p []byte) (int, error) { return len(p) / 2, nil }
 
-func ExampleErrShortWrite() {
+func ExampleStackLog_Error() {
 	logger := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{NoColors: true}})
 
 	err := logger.WithWriter(halfWriter{}).Error("the writer accepted fewer bytes than the line")
