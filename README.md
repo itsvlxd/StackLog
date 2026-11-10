@@ -107,6 +107,8 @@ logger.Warn("retry 3 of 5 for user:42")     // written
 logger.Error("upstream returned 502")       // written
 ```
 
+![Level filter](assets/level-filter.png)
+
 A filter writes its own level and everything more severe, so it cannot hide a worse
 problem than the problem it keeps. `Fatal` sits above the others and still exits: the
 only way to silence it is to set `MinLevel` past `FatalLevel`, which is a decision made
@@ -155,9 +157,7 @@ that reads back as the same `float32`, so `float32(1.1)` writes `1.1` and not
 kv.WithParams("when", time.Now()).Error("a time.Time is not a supported value")
 ```
 
-> No capture for this section yet. `assets/slow-req-error.png` shows a `float64`
-> written as `<unsupported>`, and that stopped being true the moment `float64` became
-> a supported type. #23 regenerates the whole set from one tape.
+![Value types](assets/value-types.png)
 
 > An odd number of arguments is not validated. The last value is written with no
 > key.
@@ -248,6 +248,8 @@ Four names, and an unknown name resolves to `PresetDefault`. Every preset carrie
 | `PresetMuted` | low-chroma palette, full-word labels. For long-running services and for output that ends up in a file |
 | `PresetBadge` | the level as a block — background colour, white text, padding inside the block, three-letter labels |
 | `PresetHighContrast` | bright colours for legibility, four-letter labels |
+
+![Presets](assets/presets.png)
 
 `NoColors` is a flag, not a preset. It applies to any preset and writes no escape
 sequence at all:
@@ -375,12 +377,11 @@ func main() {
 
 ![Writing to a file](assets/wrote-line-readme-log.png)
 
-Contents of `readme-example.log`:
+Contents of `readme-example.log`, quoted by the showcase so the escape codes are
+visible rather than interpreted:
 
 ```text
-
-\x1b[31mERRO\x1b[31m\x1b[0m service started, listening on 0.0.0.0:8080
-
+readme-example.log: "\x1b[31mERRO\x1b[0m service started, listening on 0.0.0.0:8080\n"
 ```
 
 > There is no terminal detection. Colours are written unless `Style.NoColors` is
@@ -403,8 +404,7 @@ if err := logger.Error("upstream returned 502 for user:42"); err != nil {
 write failed: stacklog: short write
 ```
 
-> No capture for this section yet. Add `assets/handling-write-errors.png` and it
-> will render here.
+![Handling write errors](assets/handling-write-errors.png)
 
 > The buffer is reset after a failed write, so one failure does not corrupt the
 > following lines. A short write also means the padding never reaches the writer,

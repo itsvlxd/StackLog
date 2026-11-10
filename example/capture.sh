@@ -100,7 +100,24 @@ for entry in "${mapping[@]}"; do
   longest=$(sed 's/\x1b\[[0-9;]*m//g' <<<"$output" | awk '{ if (length > m) m = length } END { print m+0 }')
 
   if [[ $mode == png ]]; then
-    freeze -o "assets/$name.png" --execute "{ go run ./example $section || true; }"
+    # freeze's -W is the output width in pixels, so the width comes from the longest
+    # line the section printed. A one-line feature gets a small image and a wide one
+    # gets a wide image, instead of everything being cropped to the same box.
+    #
+    # sh -c is required: freeze executes the string as a command rather than through a
+    # shell, so a bare `go run ... || true` is handed to exec as one word.
+    png_width=$(( (longest + 6) * 18 ))
+
+    if (( png_width < 480 )); then
+      png_width=480
+    fi
+
+    if (( png_width > 1000 )); then
+      png_width=1000
+    fi
+
+    freeze -o "assets/$name.png" -W "$png_width" -p 16 -m 24 \
+      --execute "sh -c 'go run ./example $section || true'"
   else
     # vhs sizes the canvas, so width and height come from what the program actually
     # printed instead of a number chosen by hand per section. Stripping the escape

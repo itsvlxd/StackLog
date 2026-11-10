@@ -189,7 +189,7 @@ func timestamp() {
 // file writes through WithWriter, then reads the result back and quotes it, so the
 // escape codes that land in a log file are visible rather than implied.
 func file() {
-	const path = "example-showcase.log"
+	const path = "readme-example.log"
 
 	base := stacklog.CreateLogger(stacklog.Config{})
 
@@ -217,7 +217,7 @@ func file() {
 		return
 	}
 
-	fmt.Println("example-showcase.log:", strconv.Quote(string(data)))
+	fmt.Println("readme-example.log:", strconv.Quote(string(data)))
 }
 
 // writeErrors shows that a short write is an error, not a partial success.
