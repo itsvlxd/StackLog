@@ -38,6 +38,14 @@
 // so that writer has to be safe for concurrent use in its own right - os.Stdout
 // is, a bytes.Buffer shared between loggers is not.
 //
+// Levels ascend in severity: debug, info, warn, error, fatal. Config.MinLevel drops
+// every call below it, before anything is written into the buffer, and its zero value
+// is DebugLevel — a Config that says nothing about levels writes everything. Because
+// severity ascends, a filter keeps its own level and everything worse, so it cannot
+// hide a problem more serious than the one it keeps. The filter is copied along with
+// Config when a logger is derived, so setting it at creation reaches every derived
+// logger, and changing it on the base afterwards does not reach the copy.
+//
 // The writer is the caller's choice, and it is where the cost of a log line lives.
 // One line is built in a fixed buffer and handed to a single Write call, so the
 // formatting is the smaller half: about 64 ns to build a line against roughly 233 ns

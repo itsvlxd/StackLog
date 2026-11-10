@@ -32,6 +32,28 @@ func Example() {
 	// ERRO upstream returned 502 for user:42
 }
 
+// MinLevel drops every call below it, before the line is built. Written to a buffer
+// here so the dropped calls are visibly absent rather than merely claimed.
+func ExampleStackLog_Info_filtered() {
+	var buf bytes.Buffer
+
+	logger := stacklog.CreateLogger(stacklog.Config{
+		MinLevel: stacklog.WarnLevel,
+		Style:    stacklog.Style{NoColors: true},
+	}).WithWriter(&buf)
+
+	logger.Debug("cache miss for key user:42")
+	logger.Info("request completed in 12ms")
+	logger.Warn("retry 3 of 5 for user:42")
+	logger.Error("upstream returned 502 for user:42")
+
+	fmt.Print(buf.String())
+
+	// Output:
+	// WARN retry 3 of 5 for user:42
+	// ERRO upstream returned 502 for user:42
+}
+
 func ExampleStackLog_WithParams() {
 	logger := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{NoColors: true}})
 

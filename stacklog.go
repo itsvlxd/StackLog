@@ -52,10 +52,20 @@ var (
 // Style is optional. Any part left as the zero value falls back to the package
 // default for that component. Config is copied by CreateLogger, so changing it
 // after the call has no effect on the logger.
+//
+// MinLevel drops every call below it. The zero value is DebugLevel, which writes
+// everything, so a Config that says nothing about levels behaves exactly as it did
+// before the field existed. Levels ascend in severity, so a filter can never hide a
+// more severe call than the level it keeps: with MinLevel set to WarnLevel, warn,
+// error and fatal all still write and only debug and info are dropped. Setting
+// MinLevel above FatalLevel silences everything including Fatal, which is a decision
+// rather than an accident, and it is the one way to lose the line that explains a
+// crash.
 type Config struct {
 	Style      Style
 	Timestamp  bool
 	TimeFormat string
+	MinLevel   LogLevel
 }
 
 // Style holds the colours for each component of a line. Set a style with
@@ -189,6 +199,13 @@ func (sl *StackLog) WithWriter(w io.Writer) *StackLog {
 // By the io.Writer contract a short write is a failure, not a partial success.
 var ErrShortWrite = errors.New("stacklog: short write")
 
+// Enabled reports whether a level writes on this logger. It is the same comparison
+// print makes, exposed so a caller can skip building a message it knows will be
+// thrown away.
+func (sl *StackLog) Enabled(level LogLevel) bool {
+	return level >= sl.Config.MinLevel
+}
+
 // Debug writes one line at debug level and returns the write error, if any.
 func (sl *StackLog) Debug(message string) error {
 	return sl.print(DebugLevel, message)
@@ -320,6 +337,13 @@ func (sl *StackLog) addBottomPadding() {
 }
 
 func (sl *StackLog) print(level LogLevel, message string) error {
+	// One comparison, before anything is written into the buffer. A filtered call
+	// costs that comparison and stops; it does not build a line, flush it, or
+	// allocate.
+	if !sl.Enabled(level) {
+		return nil
+	}
+
 	if sl.Config.Timestamp {
 		sl.addTimestamp()
 	}
