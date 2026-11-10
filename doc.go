@@ -27,7 +27,14 @@
 // test so it cannot change silently.
 //
 // A logger is cheap to derive. WithParams, WithPrefix and WithWriter return new
-// loggers and never modify the original, so one base logger can be shared and
-// specialised per call site. Because the copy takes its own Config, set the style
-// before deriving, not after.
+// loggers and never modify the original, and each derived logger owns its own
+// buffer, so one base logger can be shared and specialised per call site.
+// Because the copy takes its own Config, set the style before deriving, not
+// after.
+//
+// Derivation is also what makes concurrent use work. A logger per goroutine is
+// safe; the same logger called from two goroutines is not, and no lock guards a
+// logger. A derived logger shares its writer with whatever it was derived from,
+// so that writer has to be safe for concurrent use in its own right - os.Stdout
+// is, a bytes.Buffer shared between loggers is not.
 package stacklog

@@ -10,8 +10,10 @@ import (
 // StackLog writes one line per call to standard output.
 //
 // Params and prefix are configured through WithParams and WithPrefix, which
-// return new loggers rather than modifying the original. A base logger can be
-// shared and specialised per call site.
+// return new loggers rather than modifying the original. Each derived logger
+// holds its own buffer, so a base logger can be shared and specialised per call
+// site. Two goroutines calling the same logger are not covered by that: give
+// each goroutine its own derived logger.
 //
 // Output is written into a fixed 1024-byte buffer. Content stops at 1020 bytes so
 // the tail can always carry the truncation marker and the line terminator. A value
@@ -122,6 +124,25 @@ func CreateLogger(config Config) *StackLog {
 	return &StackLog{Config: config, Buffer: sb, wr: os.Stdout}
 }
 
+// derive copies sl into a new logger with its own buffer.
+//
+// Every derived logger comes through here. WithParams, WithPrefix and WithWriter
+// copy the struct by value, and that copy carries the *StackBuffer pointer: with
+// no fresh buffer, two loggers share one 1024-byte array, one BufLen and one
+// lineStart, so a line written by one is cut short or merged into a line written
+// by the other. That is a data race even when each goroutine holds its own
+// derived logger, and it shows up under go test -race.
+//
+// The new buffer is in the same state Reset() leaves a used one in, so a fresh
+// buffer and a reused one behave identically and no padding rule changes.
+func (sl *StackLog) derive() StackLog {
+	newLogger := *sl
+
+	newLogger.Buffer = CreateBuffer()
+
+	return newLogger
+}
+
 // WithParams returns a new logger that appends key/value pairs to every line it
 // writes. Arguments are read in pairs: the first is the key, the second the
 // value. The original logger is not changed.
@@ -131,7 +152,7 @@ func CreateLogger(config Config) *StackLog {
 //
 // Types that are not handled are written as <unsupported>.
 func (sl *StackLog) WithParams(params ...any) *StackLog {
-	newLogger := *sl
+	newLogger := sl.derive()
 
 	newLogger.params = params
 
@@ -141,7 +162,7 @@ func (sl *StackLog) WithParams(params ...any) *StackLog {
 // WithPrefix returns a new logger that writes prefix before the message. The
 // original logger is not changed.
 func (sl *StackLog) WithPrefix(prefix string) *StackLog {
-	newLogger := *sl
+	newLogger := sl.derive()
 
 	newLogger.prefix = prefix
 
@@ -157,7 +178,8 @@ func (sl *StackLog) WithWriter(w io.Writer) *StackLog {
 		w = os.Stdout
 	}
 
-	newLogger := *sl
+	newLogger := sl.derive()
+
 	newLogger.wr = w
 
 	return &newLogger
