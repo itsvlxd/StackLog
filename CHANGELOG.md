@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/itsvlxd/StackLog/compare/v1.1.0...v1.1.1) (2026-11-10)
+
+### Bug Fixes
+
+* **module:** retract v1.0.1 ([2565074](https://github.com/itsvlxd/StackLog/commit/25650749bdcd172dd30d1eabd091afa1426819a5))
+
 ## [1.1.0](https://github.com/itsvlxd/StackLog/compare/v1.0.0...v1.1.0) (2026-11-10)
 
 ### ⚠ BREAKING CHANGES
