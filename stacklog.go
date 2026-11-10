@@ -211,13 +211,25 @@ func (sl *StackLog) Error(message string) error {
 
 // Fatal writes one line at fatal level and terminates the process with status 1.
 //
-// It does not return an error because it never returns. A write failure is
-// reported to os.Stderr on a best-effort basis, since the configured writer is
-// the thing that failed. Deferred functions do not run, and a buffered writer is
-// not flushed.
+// It does not return an error because it never returns. A write failure is reported
+// to os.Stderr on a best-effort basis, since the configured writer is the thing that
+// failed.
+//
+// If the writer can be flushed, it is flushed before the exit. Deferred functions do
+// not run under os.Exit, so a caller who passed a buffered writer for throughput —
+// the pattern the README recommends — would otherwise lose the fatal line and every
+// line before it, which is precisely the output a crash is supposed to explain. The
+// flush is attempted even when the write itself failed, to salvage what is already
+// buffered. A flush failure is reported to os.Stderr as well.
 func (sl *StackLog) Fatal(message string) {
 	if err := sl.print(FatalLevel, message); err != nil {
 		os.Stderr.Write([]byte("stacklog: write failed: " + err.Error() + "\n"))
+	}
+
+	if f, ok := sl.wr.(interface{ Flush() error }); ok {
+		if err := f.Flush(); err != nil {
+			os.Stderr.Write([]byte("stacklog: fatal flush failed: " + err.Error() + "\n"))
+		}
 	}
 
 	os.Exit(1)

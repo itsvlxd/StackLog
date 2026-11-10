@@ -374,9 +374,42 @@ logger.Fatal("shutting down, the port is still in use")
 
 ![Fatal](assets/shutting-down-fatal.png)
 
-`Fatal` writes the line and calls `os.Exit(1)`. It does not return an error,
-because it never returns. Deferred functions do not run, and a buffered writer is
-not flushed.
+`Fatal` writes the line, flushes the writer if it can be flushed, then calls
+`os.Exit(1)`. It does not return an error, because it never returns. A write failure
+is reported to `os.Stderr` on a best-effort basis. Deferred functions do not run,
+which is why the flush happens here instead of being left to your `defer`.
+
+### Throughput and buffering
+
+The line takes about 64 ns to build. Written to a real file one syscall at a time,
+the same call costs 233 ns — roughly three quarters of a log line is the write.
+A buffered writer is the whole difference, and `WithWriter` already takes one:
+
+```go
+bw := bufio.NewWriterSize(f, 256*1024)
+defer bw.Flush()
+
+logger := stacklog.CreateLogger(stacklog.Config{}).WithWriter(bw)
+```
+
+Measured on the same line on the same machine: 233 ns unbuffered, 33 to 55 ns
+buffered, `0 allocs` either way.
+
+Three consequences, each one a change to what the logger promises.
+
+- **Errors move to the flush.** `logger.Error(...)` returns nil once the bytes are
+  buffered. The real failure surfaces at `Flush`, and only if you check it.
+- **Decide the latency you are accepting.** Buffered output leaves when the buffer
+  fills, so a quiet service can hold its last lines for a long time. If that matters,
+  flush on a timer as well as on size — zap defaults to 256 KB and 30 seconds,
+  whichever comes first, and that interval is your worst-case visibility delay.
+- **`bufio.Writer` is not safe for concurrent use.** A derived logger shares its
+  writer, so one buffered writer reached from loggers in eight goroutines is a data
+  race. One buffered writer per goroutine, or lock it yourself.
+
+This package builds into its own fixed buffer and hands the bytes to whatever writer
+you supply. It does not hold a write buffer for you: a logger owning a heap-allocated
+buffer contradicts the fixed per-line buffer the package exists to provide.
 
 ## Benchmarks
 
