@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/itsvlxd/StackLog/compare/v1.1.3...v1.2.0) (2026-11-10)
+
+### Features
+
+* **buffer:** float, duration and error values in the key/value path ([2a7ab28](https://github.com/itsvlxd/StackLog/commit/2a7ab282c961b4f661075b07d2abb8e4da069951)), closes [#23](https://github.com/itsvlxd/StackLog/issues/23) [#15](https://github.com/itsvlxd/StackLog/issues/15)
+
 ## [1.1.3](https://github.com/itsvlxd/StackLog/compare/v1.1.2...v1.1.3) (2026-11-10)
 
 ### Performance Improvements
