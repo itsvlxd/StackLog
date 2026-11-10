@@ -1,3 +1,9 @@
+## [1.1.3](https://github.com/itsvlxd/StackLog/compare/v1.1.2...v1.1.3) (2026-11-10)
+
+### Performance Improvements
+
+* **style:** stop re-emitting a colour the terminal already holds ([3d0f3fe](https://github.com/itsvlxd/StackLog/commit/3d0f3fe2f9c9112ca86567c0fb5f75c15dfc9a7d)), closes [#10](https://github.com/itsvlxd/StackLog/issues/10)
+
 ## [1.1.2](https://github.com/itsvlxd/StackLog/compare/v1.1.1...v1.1.2) (2026-11-10)
 
 ### Bug Fixes
