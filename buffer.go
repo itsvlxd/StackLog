@@ -2,6 +2,7 @@ package stacklog
 
 import (
 	"strconv"
+	"time"
 )
 
 // truncateMark is appended to a line whose content was cut by the fixed buffer, so
@@ -81,26 +82,98 @@ func (sb *StackBuffer) AppendBool(b bool) *StackBuffer {
 	return sb.writeInto(strconv.AppendBool(bool[:0], b))
 }
 
+// AppendFloat writes n in the shortest decimal that reads back as the same
+// float64: 1.44, not 1.44E+00. The 32-byte scratch array covers the worst case,
+// which is about 24 bytes for a value like -1.2345678901234568e-308, so the append
+// never grows the slice and nothing escapes to the heap.
+func (sb *StackBuffer) AppendFloat(n float64) *StackBuffer {
+	return sb.appendFloat(n, 64)
+}
+
+// appendFloat does the work. bitSize decides what shortest means: -1 at 32 is the
+// shortest decimal that reads back as the same float32, which is why float32 must
+// not travel through the 64-bit path. float32(1.1) at bitSize 64 is
+// 1.100000023841858, and at 32 it is 1.1.
+func (sb *StackBuffer) appendFloat(n float64, bitSize int) *StackBuffer {
+	var float [32]byte
+
+	return sb.writeInto(strconv.AppendFloat(float[:0], n, 'g', -1, bitSize))
+}
+
+// AppendError writes the message from e. A nil error writes "<nil>" so a key is
+// never left with an empty value.
+//
+// This catches an untyped nil only. A nil pointer held in an error interface is not
+// nil, and calling Error on it is the caller's bug:
+//
+//	var e *MyError = nil
+//	logger.WithParams("err", e) // e is not nil, so Error runs on a nil receiver
+//
+// Catching that would need reflection or a recover on the per-line path, which is a
+// worse trade than stating the limit.
+func (sb *StackBuffer) AppendError(e error) *StackBuffer {
+	if e == nil {
+		return sb.WriteString("<nil>")
+	}
+
+	return sb.WriteString(e.Error())
+}
+
 // AppendAny dispatches on the dynamic type and writes the value straight into the
 // buffer. It does not build an intermediate string. Types it does not handle are
 // written as "<unsupported>" rather than printed outside the log stream.
 //
 // The conversion to any happens at the call site, so this does not remove the
 // boxing cost — it removes the slice of strings that used to sit on top of it.
+//
+// Handled: every int and uint width, float32 and float64, bool, string, error, and
+// time.Duration. A Duration is written as nanoseconds because that is what it is —
+// an int64 counted in nanoseconds — so 1500 * time.Microsecond writes 1500000.
+//
+// Two consequences of the type switch worth knowing. rune is an alias for int32, so
+// a rune is written as a number rather than a character. And error is matched after
+// the concrete types, so a type that both has a case here and implements error is
+// read as the type it names. A nil interface has no dynamic type at all, so it gets
+// its own case and writes "<nil>".
 func (sb *StackBuffer) AppendAny(a any) *StackBuffer {
 	switch p := a.(type) {
 	case int:
 		return sb.AppendInt(int64(p))
+	case int8:
+		return sb.AppendInt(int64(p))
+	case int16:
+		return sb.AppendInt(int64(p))
+	case int32:
+		return sb.AppendInt(int64(p))
 	case int64:
 		return sb.AppendInt(p)
+	case time.Duration:
+		return sb.AppendInt(int64(p))
 	case uint:
+		return sb.AppendUint(uint64(p))
+	case uint8:
+		return sb.AppendUint(uint64(p))
+	case uint16:
+		return sb.AppendUint(uint64(p))
+	case uint32:
 		return sb.AppendUint(uint64(p))
 	case uint64:
 		return sb.AppendUint(p)
+	case float32:
+		return sb.appendFloat(float64(p), 32)
+	case float64:
+		return sb.AppendFloat(p)
 	case bool:
 		return sb.AppendBool(p)
 	case string:
 		return sb.WriteString(p)
+	case error:
+		return sb.AppendError(p)
+	case nil:
+		// A nil interface has no dynamic type, so it cannot reach the error case
+		// above. Writing "<nil>" here is what makes WithParams("err", err) readable
+		// when err happens to be nil, instead of reporting a type nobody recognises.
+		return sb.WriteString("<nil>")
 	default:
 		return sb.WriteString("<unsupported>")
 	}

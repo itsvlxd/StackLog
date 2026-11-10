@@ -99,17 +99,24 @@ kv.Error("upstream returned 502, retried 3 times")
 
 ![Key/value context](assets/upstream-502-error.png)
 
-Supported value types: `int`, `int64`, `uint`, `uint64`, `bool`, `string`.
-Anything else is written as `<unsupported>`.
+Supported value types: every `int` and `uint` width, `float32`, `float64`, `bool`,
+`string`, `error`, and `time.Duration`. A `time.Duration` is written as nanoseconds,
+because that is what it is — an `int64` counted in nanoseconds — so
+`1500 * time.Microsecond` writes `1500000`. `float32` is written in the shortest form
+that reads back as the same `float32`, so `float32(1.1)` writes `1.1` and not
+`1.100000023841858`. A nil value writes `<nil>`. Anything else is written as
+`<unsupported>`.
 
 ```go
-kv.WithParams("duration", 1.44).Error("slow request, and the duration is a float64")
+kv.WithParams("when", time.Now()).Error("a time.Time is not a supported value")
 ```
 
-![Key/value context — unsupported type](assets/slow-req-error.png)
+> No capture for this section yet. `assets/slow-req-error.png` shows a `float64`
+> written as `<unsupported>`, and that stopped being true the moment `float64` became
+> a supported type. #23 regenerates the whole set from one tape.
 
 > An odd number of arguments is not validated. The last value is written with no
-> key. `float64`, `time.Duration` and `error` are the common types missing today.
+> key.
 
 ### Prefix
 

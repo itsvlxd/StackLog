@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/itsvlxd/stacklog"
 )
@@ -43,15 +44,15 @@ func ExampleStackLog_WithParams() {
 }
 
 // A value whose type AppendAny does not handle is written as <unsupported> rather
-// than being formatted outside the log stream. float64, time.Duration and error are
-// the common ones missing.
+// than being formatted outside the log stream. The key is still written; only the
+// value is refused.
 func ExampleStackLog_WithParams_unsupported() {
 	logger := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{NoColors: true}})
 
-	logger.WithParams("duration", 1.44).Warn("slow request, and the duration is a float64")
+	logger.WithParams("when", time.Now()).Warn("a time.Time is not a supported value")
 
 	// Output:
-	// WARN slow request, and the duration is a float64 duration=<unsupported>
+	// WARN a time.Time is not a supported value when=<unsupported>
 }
 
 func ExampleStackLog_WithPrefix() {
