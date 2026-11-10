@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/itsvlxd/StackLog/compare/v1.2.1...v1.3.0) (2026-11-10)
+
+### Features
+
+* **log:** Config.MinLevel drops every call below the level it keeps ([556fd62](https://github.com/itsvlxd/StackLog/commit/556fd62563d43677853680641eaee846d27d678e)), closes [#14](https://github.com/itsvlxd/StackLog/issues/14)
+
 ## [1.2.1](https://github.com/itsvlxd/StackLog/compare/v1.2.0...v1.2.1) (2026-11-10)
 
 ### Bug Fixes
