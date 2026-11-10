@@ -47,7 +47,7 @@ func TestSuccessfulWriteReturnsNil(t *testing.T) {
 	}
 
 	// The end-to-end test that was not possible while os.Stdout was hardcoded.
-	want := "\x1b[31mERRO\x1b[31m\x1b[0m hi\n"
+	want := "\x1b[31mERRO\x1b[0m hi\n"
 	if buf.String() != want {
 		t.Errorf("got %q, want %q", buf.String(), want)
 	}

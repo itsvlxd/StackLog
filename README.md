@@ -380,9 +380,13 @@ go test -bench . -benchmem
 Measured on an i9-12900KS, 24 logical processors, with Go 1.27.3.
 
 ```text
-BenchmarkRenderPath-24      78.4 ns/op    0 B/op    0 allocs/op
-BenchmarkSlogToDiscard-24  347.0 ns/op    0 B/op    0 allocs/op
+BenchmarkRenderPath-24      64.6 ns/op    0 B/op    0 allocs/op
+BenchmarkSlogToDiscard-24  344.9 ns/op    0 B/op    0 allocs/op
 ```
+
+`RenderPath` measures 64.6 ns today against 78.4 before `addPostStyle` stopped
+re-emitting a colour the terminal already held: fewer escape bytes per component,
+same colours, same order.
 
 These are not the same shape of work and are not a comparison. `RenderPath`
 builds a line — level label, message, one key/value pair — and never flushes, so

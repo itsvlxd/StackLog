@@ -22,7 +22,7 @@ func TestBottomFlushedAtEndOfLine(t *testing.T) {
 	l.addBottomPadding()
 
 	got := string(l.Buffer.Buffer[:l.Buffer.BufLen])
-	want := "\x1b[31mERRO\x1b[31m\x1b[0m hi\n\n\n"
+	want := "\x1b[31mERRO\x1b[0m hi\n\n\n"
 
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)

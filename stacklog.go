@@ -231,7 +231,6 @@ func (sl *StackLog) addTimestamp() {
 
 	timeBuf := time.Now().AppendFormat(buf.Buffer[buf.BufLen:buf.BufLen], sl.Config.TimeFormat)
 	buf.BufLen += len(timeBuf)
-	buf.ResetColor()
 
 	sl.addPostStyle(tsStyle)
 

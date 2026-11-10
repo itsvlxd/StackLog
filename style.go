@@ -128,15 +128,23 @@ func parseColorVal(val any, color *Color, rgb *ColorRGB, set *bool) {
 	}
 }
 
-// addColorStyle writes the escape sequences for a style into the buffer and
-// reports whether anything was written. That report is what decides the reset in
-// addPostStyle, so the gate is stated once here rather than at every call site.
-func (sl *StackLog) addColorStyle(buf *StackBuffer, style CompStyle) bool {
-	if sl.Config.Style.NoColors {
-		return false
-	}
+// hasColor reports whether this style opens a colour on this logger: a colour was
+// set, and colour output is not switched off. The two questions are not the same
+// and the difference is the whole gate — a style can carry colour fields that
+// NoColors suppresses, and a style can be non-zero from padding alone while
+// writing no colour at all. addColorStyle writes on this answer and addPostStyle
+// resets on it, so the rule has one home.
+func (sl *StackLog) hasColor(style CompStyle) bool {
+	return !sl.Config.Style.NoColors && (style.fgSet || style.bgSet)
+}
 
-	wrote := false
+// addColorStyle writes the opening escape sequences for a style into the buffer.
+// It returns nothing: whether a component gets a reset is decided by addPostStyle
+// asking hasColor, not by a report from here.
+func (sl *StackLog) addColorStyle(buf *StackBuffer, style CompStyle) {
+	if !sl.hasColor(style) {
+		return
+	}
 
 	if style.bgSet {
 		if style.bgRGB != (ColorRGB{}) {
@@ -144,7 +152,6 @@ func (sl *StackLog) addColorStyle(buf *StackBuffer, style CompStyle) bool {
 		} else {
 			buf.BgColor(style.bg)
 		}
-		wrote = true
 	}
 
 	if style.fgSet {
@@ -153,10 +160,7 @@ func (sl *StackLog) addColorStyle(buf *StackBuffer, style CompStyle) bool {
 		} else {
 			buf.FgColor(style.fg)
 		}
-		wrote = true
 	}
-
-	return wrote
 }
 
 // addPreStyle writes the opening half of a component: Top padding, colour, then
@@ -182,19 +186,17 @@ func (sl *StackLog) addPreStyle(style CompStyle) {
 	}
 }
 
-// addPostStyle writes the closing half of a component: the colour is re-emitted,
-// Right padding is written, and the Bottom value is recorded as the maximum
-// across the line rather than emitted here. ResetColor runs last so the padding
-// inside the line stays inside the coloured block.
+// addPostStyle writes the closing half of a component: Right padding, the Bottom
+// value recorded as the maximum across the line rather than emitted here, and the
+// reset. ResetColor runs last so padding inside the line stays inside the coloured
+// block.
 //
-// The colour is re-emitted even when it is already active. That is wasted bytes,
-// not a correctness problem, and it is asserted in TestRenderLine so any change
-// to it stays visible.
+// No colour is written here. addPreStyle opened it and nothing between the two
+// closed it, so re-emitting it only repeats a state the terminal already holds.
+// That repeat used to cost 4 to 11 bytes per component.
 func (sl *StackLog) addPostStyle(style CompStyle) {
 	buf := sl.Buffer
 	sp := style.p
-
-	wrote := sl.addColorStyle(buf, style)
 
 	if sp.Right > 0 {
 		for i := 0; i < sp.Right; i++ {
@@ -206,9 +208,9 @@ func (sl *StackLog) addPostStyle(style CompStyle) {
 		buf.maxBottom = sp.Bottom
 	}
 
-	// The reset only belongs to a component that actually opened a colour. Without
-	// this, a style with nothing set still writes an escape sequence.
-	if wrote {
+	// Only a component that opened a colour has a reset to write. Padding is not
+	// colour, and NoColors suppresses a style that does carry one.
+	if sl.hasColor(style) {
 		buf.ResetColor()
 	}
 }

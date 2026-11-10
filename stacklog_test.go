@@ -1,6 +1,8 @@
 package stacklog
 
 import (
+	"strings"
+
 	"testing"
 )
 
@@ -16,16 +18,41 @@ func TestRenderLine(t *testing.T) {
 	l.Buffer.WriteString("hi")
 	l.Buffer.WriteNL()
 
-	want := "\x1b[35mDEBU\x1b[35m\x1b[0m hi\n"
+	want := "\x1b[35mDEBU\x1b[0m hi\n"
 	got := string(l.Buffer.Buffer[:l.Buffer.BufLen])
 
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 
-	// The second \x1b[35m is addPostStyle re-emitting a colour that is already
-	// active. Not a correctness bug, wasted bytes. Asserted so any change is
-	// visible.
+	// One colour open per component, then one reset. The level colour used to
+	// appear twice: addPostStyle re-emitted what addPreStyle had already opened,
+	// and the terminal was already in that colour. A component that writes two
+	// openings is writing bytes that change nothing.
+}
+
+// A style can carry padding and carry no colour. Emptiness and "opened a colour"
+// are different questions, and the reset gate has to ask the second one. A gate
+// that asks the first writes a reset here for a colour that was never opened.
+func TestPaddingWithoutColourWritesNoEscape(t *testing.T) {
+	l := CreateLogger(Config{})
+
+	l.Config.Style.Level[3] = NewStyle().Padding(Padding{Top: 1, Left: 1, Right: 1})
+
+	l.Buffer.Reset()
+	l.addLevelPrefix(3)
+	l.Buffer.WriteString("hi")
+	l.Buffer.WriteNL()
+
+	got := string(l.Buffer.Buffer[:l.Buffer.BufLen])
+
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("a style with no colour wrote escape codes: %q", got)
+	}
+
+	if !strings.Contains(got, "ERRO") {
+		t.Errorf("the label disappeared: %q", got)
+	}
 }
 
 func TestRenderLineWithParams(t *testing.T) {
