@@ -1,3 +1,10 @@
+## [1.4.0](https://github.com/itsvlxd/StackLog/compare/v1.3.0...v1.4.0) (2026-11-11)
+
+### Features
+
+* **buffer:** make the reserved tail a property of the buffer ([b3671ba](https://github.com/itsvlxd/StackLog/commit/b3671ba0ed982dfefc8fab3f5e3a547ec99d1d74))
+* **log:** one JSON object per call, cut where a cut cannot break it ([c19d3d1](https://github.com/itsvlxd/StackLog/commit/c19d3d1a7a16f6f9aa97ecfcc156657beb5c051b))
+
 ## [1.3.0](https://github.com/itsvlxd/StackLog/compare/v1.2.1...v1.3.0) (2026-11-10)
 
 ### Features
