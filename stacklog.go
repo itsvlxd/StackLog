@@ -71,10 +71,23 @@ type Config struct {
 // Style holds the colours for each component of a line. Set a style with
 // NewStyle and the builder methods rather than by assigning the fields.
 //
-// The Level and Params arrays have length MaxLevel, which is exported, so a
-// caller can write [MaxLevel]CompStyle rather than a literal 5. Adding a level
-// changes that length, which is a breaking change for anyone constructing a
-// Style.
+// Level, Params and LevelPrefix are three arrays of length MaxLevel. The fixed
+// length is a choice rather than an accident: a Style is copied by value into every
+// derived logger, and three arrays copy as three values. A map or a slice keyed by
+// level would copy a header and leave the derived logger sharing one mutable style
+// with the logger it came from, which is the exact failure the per-logger buffer
+// exists to prevent.
+//
+// The length is the caller's problem in one place only: an array literal. A caller
+// who takes a preset, or who sets one component after CreateLogger with
+// Config.Style.Level[ErrorLevel], never has to know how many levels exist. Indices
+// are written with the level constants for that reason. A positional 3 styles the
+// wrong level the day one is inserted, and nothing reports it.
+//
+// MaxLevel is exported so a literal can name it rather than hard-code 5. Adding a
+// level changes that length, which breaks every caller who wrote a literal. Saying
+// so here is the whole point: it is a decision taken in the open rather than a
+// surprise found in a release.
 //
 // Preset names a base style. CreateLogger takes each component from the preset
 // only when that component is left as the zero value, so a component set here
