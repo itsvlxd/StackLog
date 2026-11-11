@@ -77,6 +77,8 @@ timestamp:info-request-timestamp
 file:wrote-line-readme-log
 write-errors:handling-write-errors
 json:json-output
+logo:stacklog-logo
+goroutines:goroutine-loggers
 fatal:shutting-down-fatal
 EOF
 

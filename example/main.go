@@ -15,7 +15,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/itsvlxd/stacklog"
 )
@@ -45,6 +48,8 @@ var sections = []struct {
 	{"file", file},
 	{"write-errors", writeErrors},
 	{"json", jsonOutput},
+	{"logo", logo},
+	{"goroutines", goroutines},
 	{"fatal", fatal},
 }
 
@@ -243,6 +248,66 @@ func jsonOutput() {
 
 	text.Error("upstream 502")
 	structured.Error("upstream 502")
+}
+
+// logo prints the wordmark through Plain: no level label, no prefix, no timestamp, no colour,
+// no padding. The frame is composed from rune counts rather than typed by hand because a
+// box-drawing character is three bytes in a Go string and len() would quietly make the right
+// edge crooked.
+const (
+	logoName    = "s t a c k l o g"
+	logoTagline = "fixed buffer · one line per call"
+)
+
+func logo() {
+	logger := stacklog.CreateLogger(stacklog.Config{})
+
+	width := utf8.RuneCountInString(logoTagline) + 4
+
+	line := func(text string) string {
+		pad := width - utf8.RuneCountInString(text) - 2
+
+		return "│  " + text + strings.Repeat(" ", pad) + "│"
+	}
+
+	edge := func(left, right string) string {
+		return left + strings.Repeat("─", width) + right
+	}
+
+	logger.Plain(edge("┌", "┐"))
+	logger.Plain(line(logoName))
+	logger.Plain(line(logoTagline))
+	logger.Plain(edge("└", "┘"))
+}
+
+// goroutines is the concurrency model on one screen: a base logger, one derived logger per
+// goroutine, all four sharing a single writer. Each derived logger owns its own 1024-byte
+// buffer, which is the reason this is safe at all - and which is also why the buffer is not the
+// shared thing here, the writer is.
+//
+// The order the lines land in is not a contract. The ownership is.
+func goroutines() {
+	base := stacklog.CreateLogger(stacklog.Config{})
+
+	var wg sync.WaitGroup
+
+	for _, name := range []string{"db", "http", "cache", "queue"} {
+		wg.Add(1)
+
+		go func(name string) {
+			defer wg.Done()
+
+			logger := base.WithPrefix(name)
+
+			logger.Info("opening connection pool")
+			logger.Warn("retry 1 of 3, upstream slow")
+			logger.Info("ready")
+		}(name)
+	}
+
+	wg.Wait()
+
+	base.Plain("order is not guaranteed. ownership is.")
 }
 
 // fatal writes the line and exits with status 1, so it is the last section and
