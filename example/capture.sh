@@ -1,53 +1,59 @@
 #!/usr/bin/env bash
 # Regenerate the README captures from the showcase program.
 #
-#   ./example/capture.sh           freeze -> PNG, the format the README uses
-#   ./example/capture.sh --gif     vhs -> GIF, animated, 256-colour palette
+#   ./example/capture.sh           vhs -> animated GIF. What assets/ holds today.
+#   ./example/capture.sh --png     freeze -> PNG, static, no conversion
 #
 # Two rules keep this honest. The section names come from the program itself
 # (`go run ./example -list`), so a feature that no longer exists cannot be captured.
-# And the asset names are pinned in the map below, because the README already links
-# them and renaming an asset is a broken image on a package page.
+# And the asset names are pinned in the map below, because the README links them and a
+# renaming one is a broken image on a package page.
 #
-# PNG is the default for a reason. GIF is indexed 8-bit: 256 colours maximum, and this
-# package's headline features are 256-colour indices and truecolour hex, so a GIF has
-# to approximate the exact thing the capture exists to show.
+# Why vhs and not freeze for the images the README uses: freeze renders a padded
+# colour block by blending the block colour into the glyph edges, so a badge with a
+# background looks like the background is bleeding into the text. vhs draws the
+# terminal as a terminal — block behind glyphs, glyphs on top — which is what the
+# package actually emits.
+#
+# vhs sizes its canvas in character cells with Set Columns and Set Rows and derives the
+# pixel size from the font settings. That is what these captures use. Guessing a pixel
+# width from the longest line is what the freeze path does, and it is why the freeze
+# path is no longer the default.
+#
+# The GIF palette is still a real ceiling: 256 colours, indexed 8-bit. GIF is animated
+# and freeze has no GIF output at all, so this is the trade being made, knowingly.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-mode=png
+mode=vhs
 
 case "${1:-}" in
-  --gif) mode=gif ;;
+  --png) mode=png ;;
   -h|--help)
-    sed -n '2,17p' "$0"
+    sed -n '2,24p' "$0"
     exit 0
     ;;
 esac
 
 sections=$(go run ./example -list)
 
-if [[ $mode == png ]] && ! command -v freeze >/dev/null 2>&1; then
-  cat >&2 <<'EOF'
-freeze is not installed, and it is what writes the PNG captures the README uses. It
-keeps the exact colours the package emits.
-
-  Arch (AUR):   yay -S freeze
-  Homebrew:     brew install charmbracelet/tap/freeze
-
-Or run with --gif to capture with vhs instead, accepting the palette limit.
-EOF
-  exit 1
-fi
-
-if [[ $mode == gif ]] && ! command -v vhs >/dev/null 2>&1; then
+if [[ $mode == vhs ]] && ! command -v vhs >/dev/null 2>&1; then
   echo "vhs is not installed." >&2
   exit 1
 fi
 
-# section:asset-name. The names the README already links, plus the sections that do
-# not have a capture yet.
+if [[ $mode == png ]] && ! command -v freeze >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+freeze is not installed.
+
+  Arch (AUR):   yay -S freeze
+  Homebrew:     brew install charmbracelet/tap/freeze
+EOF
+  exit 1
+fi
+
+# section:asset-name. The names the README links; the extension comes from the mode.
 mapfile -t mapping <<'EOF'
 simple:info-service-started
 levels:level-logging
@@ -79,12 +85,17 @@ if [[ $(wc -l <<<"$sections") -ne ${#mapping[@]} ]]; then
   exit 1
 fi
 
+if [[ $mode == png ]]; then
+  ext=png
+else
+  ext=gif
+fi
+
 mkdir -p assets
 
-# vhs resolves its Output path relative to the tape file, so the tapes sit in the
-# repository root next to assets/ and every path inside a tape is written from here.
+png_dir=$(mktemp -d)
 tapes=()
-trap 'rm -f "${tapes[@]}"' EXIT
+trap 'rm -rf "$png_dir"; rm -f "${tapes[@]}"' EXIT
 
 root=$(pwd -P)
 
@@ -100,60 +111,43 @@ for entry in "${mapping[@]}"; do
   longest=$(sed 's/\x1b\[[0-9;]*m//g' <<<"$output" | awk '{ if (length > m) m = length } END { print m+0 }')
 
   if [[ $mode == png ]]; then
-    # freeze's -W is the output width in pixels, so the width comes from the longest
-    # line the section printed. A one-line feature gets a small image and a wide one
-    # gets a wide image, instead of everything being cropped to the same box.
-    #
-    # sh -c is required: freeze executes the string as a command rather than through a
-    # shell, so a bare `go run ... || true` is handed to exec as one word.
-    png_width=$(( (longest + 6) * 18 ))
-
-    if (( png_width < 480 )); then
-      png_width=480
-    fi
-
-    if (( png_width > 1000 )); then
-      png_width=1000
-    fi
-
-    freeze -o "assets/$name.png" -W "$png_width" -p 16 -m 24 \
+    # sh -c is required: freeze --execute runs its argument as a command rather than
+    # through a shell, so a bare `go run ... || true` reaches exec as one word and
+    # fails with `exec: "{": executable file not found in $PATH`.
+    freeze -o "assets/$name.png" -W "$(((longest + 6) * 18))" -p 16 -m 24 \
       --execute "sh -c 'go run ./example $section || true'"
   else
-    # vhs sizes the canvas, so width and height come from what the program actually
-    # printed instead of a number chosen by hand per section. Stripping the escape
-    # codes first makes the length the text length rather than the byte length.
-    width=$(( (longest + 4) * 13 ))
-    height=$(( (lines + 2) * 30 ))
-
-    if (( width < 420 )); then
-      width=420
-    fi
-
-    if (( width > 1100 )); then
-      width=1100
-    fi
+    # Columns and Rows are character cells. The +8 leaves room for the shell prompt and
+    # the command that was typed, and it keeps a long line from wrapping onto a second
+    # row. A one-line section still gets a one-line canvas.
+    columns=$((longest + 8))
+    rows=$((lines + 3))
 
     tape="$root/.capture-$section.tape"
     tapes+=("$tape")
 
-    # A recorder paints the terminal with its own theme: the base ANSI colours come
-    # from the theme, not from the viewer's terminal. Pinning it is what makes one run
-    # of captures agree with the next, and it is why the README names the theme.
     cat >"$tape" <<EOF
 Output assets/$name.gif
+
+Require go
+
 Set Shell "bash"
 Set Theme "Builtin Dark"
-Set Width $width
-Set Height $height
 Set FontSize 22
-Set Padding 24
+Set Columns $columns
+Set Rows $rows
+Set Padding 16
+Set CursorBlink false
+Set LoopOffset 80%
+Set PlaybackSpeed 1.5
+
 Type "go run ./example $section"
 Enter
-Sleep 3
+Sleep 2
 EOF
 
     vhs "$tape"
   fi
 
-  printf 'wrote assets/%s.%s (%s lines, longest line %s columns)\n' "$name" "$mode" "$lines" "$longest"
+  printf 'wrote assets/%s.%s (%s lines, longest line %s columns)\n' "$name" "$ext" "$lines" "$longest"
 done
