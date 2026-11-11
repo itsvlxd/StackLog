@@ -213,3 +213,23 @@ func ExampleEntry() {
 	// Output:
 	// error http upstream returned 502 map[ms:12.4 user:vlad] false
 }
+
+// Plain is the mode with nothing in it: the payload, the terminator, and no level label, prefix,
+// timestamp, colour or padding. It is not filtered by MinLevel and FormatJSON does not wrap it.
+func ExampleStackLog_Plain() {
+	var out bytes.Buffer
+
+	logger := stacklog.CreateLogger(stacklog.Config{
+		MinLevel: stacklog.WarnLevel,
+		Style:    stacklog.Style{NoColors: true},
+	}).WithWriter(&out)
+
+	logger.Plain("s t a c k l o g")
+	logger.Warn("and this is a log line")
+
+	fmt.Print(out.String())
+
+	// Output:
+	// s t a c k l o g
+	// WARN and this is a log line
+}
