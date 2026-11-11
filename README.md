@@ -38,6 +38,7 @@ dependency outside the standard library.
 - Optional prefix and timestamp
 - Configurable writer — file, buffer, `io.Discard`
 - JSON Lines output through `Config.Format`, with colours suppressed and an exported `Entry`
+- Plain output through `Plain` — banners and ASCII art, with nothing added
 - Write errors returned, including short writes
 
 ## Installation
@@ -469,6 +470,93 @@ that gives way: cut inside its own string, ends with `...`, and the object gains
 `"truncated":true`. A key/value pair that will not fit is not written at all — never half a
 pair, never a dangling `"key":`. Content stops at 1004 bytes in JSON mode against 1020 in text
 mode, because the tail that closes an object has to be reserved rather than hoped for.
+
+### Plain output, and the logo
+
+`Plain` writes the payload and the terminator, and nothing else. No level label, no prefix, no
+timestamp, no key/value pairs, no colour, no padding. It exists for output that is not a log line
+— a banner, a wordmark, help text — on the writer the logger already owns, so a program does not
+end up with two routes to stdout where only one of them honours `WithWriter`.
+
+```go
+logger := stacklog.CreateLogger(stacklog.Config{})
+
+logger.Plain("┌────────────────────────────────────┐")
+logger.Plain("│  s t a c k l o g                   │")
+logger.Plain("│  fixed buffer · one line per call  │")
+logger.Plain("└────────────────────────────────────┘")
+```
+
+![The wordmark, printed by the package itself](assets/stacklog-logo.gif)
+
+That capture is `stacklog` printing its own logo: the showcase section runs the four `Plain` calls
+above through a real terminal recorder, so the frame on this page was written by the code it
+documents. The frame is composed from `utf8.RuneCountInString` rather than typed by hand — a
+box-drawing character is three bytes in a Go string, and `len()` would make the right edge crooked
+while looking perfectly fine in the source.
+
+Three rules, each one asserted in a test:
+
+- `MinLevel` does not filter it. A logger set to `WarnLevel` still prints its banner, because a
+  banner is not a log level.
+- `FormatJSON` does not wrap it. A JSON logger asked for a plain write produces exactly the text,
+  and the log lines beside it stay objects. The consequence is stated rather than left implied: a
+  JSON stream that also prints a banner contains lines that are not objects, so whatever parses it
+  skips the lines that do not begin with `{`.
+- Style is inert. A logger with a coloured, padded level and a prefix set writes the payload alone
+  and produces one newline, nothing else.
+
+A payload with newlines inside it is allowed and still costs one `Write` — which is what makes a
+framed logo usable at all. The whole payload has to fit the 1020-byte content area; an oversized
+banner is cut and ends with `...`, the same rule every other path follows.
+
+### Working across goroutines
+
+A logger is cheap to derive and every derived logger owns its own 1024-byte buffer. That is what
+makes the safe pattern the obvious one: one logger per goroutine, all of them sharing a writer.
+
+```go
+base := stacklog.CreateLogger(stacklog.Config{})
+
+var wg sync.WaitGroup
+
+for _, name := range []string{"db", "http", "cache", "queue"} {
+	wg.Add(1)
+
+	go func(name string) {
+		defer wg.Done()
+
+		logger := base.WithPrefix(name)
+
+		logger.Info("opening connection pool")
+		logger.Warn("retry 1 of 3, upstream slow")
+		logger.Info("ready")
+	}(name)
+}
+
+wg.Wait()
+
+base.Plain("order is not guaranteed. ownership is.")
+```
+
+![Four goroutines, four buffers, one writer](assets/goroutine-loggers.gif)
+
+The order the lines land in is not a contract, and the capture is the proof of that rather than a
+concession to it: the same section recorded twice is a different picture. What is guaranteed is
+that no two goroutines share a buffer, so no two goroutines share `BufLen` or a half-written line.
+
+Two things it does not make safe:
+
+- **The same logger called from two goroutines.** No lock guards a logger, and a shared logger
+  means a shared buffer. The symptom is a line written under another goroutine's prefix, or two
+  calls merged into one. One derived logger per goroutine — `TestDerivedLoggersPerGoroutineWriteWholeLines`
+  asserts exactly that: eight goroutines, 1,600 lines through a mutex-guarded writer, every line
+  matching the shape an intact line has, every logger holding its own count, under `-race`.
+- **The writer.** A derived logger shares its writer with whatever it came from, so that writer has
+  to be safe for concurrent use in its own right. `os.Stdout` is. A `bytes.Buffer` is not, and
+  neither is a `bufio.Writer` shared between loggers in eight goroutines — which is the throughput
+  advice further down this page colliding with the concurrency rule, and the reason one buffered
+  writer per goroutine is the shape to reach for.
 
 ### Fatal
 
