@@ -134,8 +134,8 @@ if logger.Enabled(stacklog.DebugLevel) {
 }
 ```
 
-A filtered call costs 0.82 ns and allocates nothing. A line that is actually built
-costs 62 to 64 ns to render, before the write.
+A filtered call costs under a nanosecond — 0.91 ns across ten runs of 3,000,000 calls — and
+allocates nothing. A line that is actually built costs about 62 ns to render, before the write.
 
 ### Key/value context
 
@@ -485,11 +485,20 @@ which is why the flush happens here instead of being left to your `defer`.
 
 ### Throughput and buffering
 
-The line takes about 64 ns to build. Written to a real file one syscall at a time,
-the same call costs 233 ns — roughly three quarters of a log line is the write.
-The same call in JSON mode is cheaper to build than the coloured one: 43 ns against 69 ns,
-both measured against `io.Discard`, because a JSON line emits no escape sequences. A buffered
-writer is the whole difference, and `WithWriter` already takes one:
+A log line has two costs and only one of them is yours to reduce. End to end, 500,000 lines of
+the shape this package is used at — a level label, a prefix, two key/value pairs, 137 bytes
+written — on the same machine as the benchmarks below:
+
+| writer | ns per line | lines per second |
+|---|---|---|
+| one syscall per line, straight to a file | 453 | 2.2M |
+| `bufio.Writer` at 256 KB, coloured text | 193 | 5.2M |
+| the same buffered, `NoColors` set | 114 | 8.8M |
+| the same buffered, `FormatJSON` | 148 | 6.8M |
+| coloured text buffered, `WithParams` called per line | 564 | 1.8M |
+
+Building the line is about 66 ns of that. Everything after it is the write, and a buffered
+writer is the whole difference — 453 ns per call becomes 193 ns. `WithWriter` already takes one:
 
 ```go
 bw := bufio.NewWriterSize(f, 256*1024)
@@ -498,8 +507,9 @@ defer bw.Flush()
 logger := stacklog.CreateLogger(stacklog.Config{}).WithWriter(bw)
 ```
 
-Measured on the same line on the same machine: 233 ns unbuffered, 33 to 55 ns
-buffered, `0 allocs` either way.
+The last row is the trap, and it is the one a caller walks into by instinct. `WithParams` returns
+a new logger, and a new logger owns a new 1024-byte buffer, so calling it on every line builds a
+buffer per line: 564 ns against 193 ns for identical output. Derive once, reuse it.
 
 Three consequences, each one a change to what the logger promises.
 
@@ -523,23 +533,54 @@ buffer contradicts the fixed per-line buffer the package exists to provide.
 go test -bench . -benchmem
 ```
 
-Measured on an i9-12900KS, 24 logical processors, with Go 1.27.3.
+Measured on an i9-12900KS, 24 logical processors, Go 1.27.3, on 2026-11-11. Ten counts of
+3,000,000 iterations each. The range column is the part worth reading: a difference inside that
+range is not a difference.
 
-```text
-BenchmarkRenderPath-24      64.6 ns/op    0 B/op    0 allocs/op
-BenchmarkSlogToDiscard-24  344.9 ns/op    0 B/op    0 allocs/op
-```
+| benchmark | median | range | what it measures |
+|---|---|---|---|
+| `RenderPath` | 61.7 ns | 59.8–66.0 | a coloured line built, never flushed |
+| `ErrorToDiscardText` | 66.1 ns | 65.6–79.5 | the same call end to end, to `io.Discard` |
+| `ErrorToDiscardTextNoColors` | 40.0 ns | 39.4–42.3 | that call with the escapes suppressed |
+| `ErrorToDiscardJSON` | 43.9 ns | 43.3–45.1 | JSON mode, two-character message |
+| `ErrorToDiscardTextLong` | 122.0 ns | 119.3–131.3 | a realistic line, coloured text |
+| `ErrorToDiscardJSONLong` | 110.4 ns | 108.9–116.4 | the same realistic line, JSON |
+| `FilteredCall` | 0.91 ns | 0.81–1.75 | a call `MinLevel` drops |
+| `SlogToDiscard` | 348.4 ns | 345.0–364.4 | `log/slog` text handler, same writer |
 
-`RenderPath` measures 64.6 ns today against 78.4 before `addPostStyle` stopped
-re-emitting a colour the terminal already held: fewer escape bytes per component,
-same colours, same order.
+Every row is `0 B/op` and `0 allocs/op`. That is the claim that travels between machines. The
+nanoseconds belong to this one.
 
-These are not the same shape of work and are not a comparison. `RenderPath`
-builds a line — level label, message, one key/value pair — and never flushes, so
-it measures the formatting only. `SlogToDiscard` is a complete `log/slog` call
-written to `io.Discard`. For a fair head to head, this logger has to be benched
-writing to a discarded writer as well, and it is not yet.
+**`log/slog` is compared fairly now.** `RenderPath` against `SlogToDiscard` was always the wrong
+shape — one builds a line and never flushes, the other is a complete call. The head to head is
+`ErrorToDiscardText` against `SlogToDiscard`: the same call, the same discarded writer. 66.1 ns
+against 348.4 ns, roughly five times faster, neither allocating.
 
-The `allocs/op` result is the claim that holds across machines. Time does not.
+**What colour costs.** The same line with `NoColors` set is 40.0 ns against 66.1 ns. Escapes are
+about 26 ns of a 66 ns line, which means 40% of building a coloured line is emitting colour. Any
+further optimisation here should start from that number rather than from a hunch.
+
+**Read the long-line pair, not the short one.** At a two-character message there is no run of
+ordinary text to copy in bulk, so JSON looks as cheap as plain text and the escaping never shows
+up. With the message length the package is used at — `upstream returned 502 for user:42` with
+`user=vlad` and `ms=12.4` — a JSON line is 110.4 ns against 122.0 ns for the coloured text line.
+
+Two changes since v1.4.0 shipped, each measured against the same baseline in the same sitting:
+
+| change | before | after |
+|---|---|---|
+| each escape assembled in a stack array and copied once, instead of a bounds-checked write per byte | 142.7 ns | 121.0 ns — coloured text, long line |
+| runs of ordinary text copied in bulk by the JSON escape writer | 182.5 ns | 109.8 ns — JSON, long line |
+
+The second one decided which format is cheaper. JSON mode used to cost 29% more than a coloured
+text line for the same content. It now costs 9% less. The escaping was the entire difference.
+
+`RenderPath` measures 61.7 ns today against 64.6 ns when this section last said anything about
+it: fewer escape bytes per component, same colours, same order.
+
+What is still on the table is compiling each style's escapes once per logger instead of per line.
+That is the remaining prize, and it collides with `Config.Style.Level[ErrorLevel]` being settable
+after `CreateLogger` — which the README documents as the supported way to reach a component. That
+is an API decision rather than an optimisation, so it is not taken quietly inside a `perf` commit.
 
 `CreateLogger` allocates, and so does `WithParams`. The per-line path does not.
