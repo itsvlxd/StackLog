@@ -540,21 +540,57 @@ range is not a difference.
 | benchmark | median | range | what it measures |
 |---|---|---|---|
 | `RenderPath` | 61.7 ns | 59.8–66.0 | a coloured line built, never flushed |
-| `ErrorToDiscardText` | 66.1 ns | 65.6–79.5 | the same call end to end, to `io.Discard` |
-| `ErrorToDiscardTextNoColors` | 40.0 ns | 39.4–42.3 | that call with the escapes suppressed |
-| `ErrorToDiscardJSON` | 43.9 ns | 43.3–45.1 | JSON mode, two-character message |
-| `ErrorToDiscardTextLong` | 122.0 ns | 119.3–131.3 | a realistic line, coloured text |
-| `ErrorToDiscardJSONLong` | 110.4 ns | 108.9–116.4 | the same realistic line, JSON |
+| `ErrorToDiscardText` | 66.1 ns | 65.3–73.6 | the same call end to end, to `io.Discard` |
+| `ErrorToDiscardTextNoColors` | 40.0 ns | 39.6–41.3 | that call with the escapes suppressed |
+| `ErrorToDiscardJSON` | 43.9 ns | 42.5–47.5 | JSON mode, two-character message |
+| `ErrorToDiscardTextLong` | 121.9 ns | 119.5–124.8 | a realistic line, coloured text |
+| `ErrorToDiscardJSONLong` | 103.8 ns | 102.5–105.9 | the same realistic line, JSON |
 | `FilteredCall` | 0.91 ns | 0.81–1.75 | a call `MinLevel` drops |
-| `SlogToDiscard` | 348.4 ns | 345.0–364.4 | `log/slog` text handler, same writer |
+| `SlogToDiscard` | 349.8 ns | 342.9–357.5 | `log/slog` text handler, same writer |
+| `SlogTextLong` | 544.0 ns | 535.8–558.0 | `log/slog` text handler, realistic line |
+| `SlogJSONLong` | 598.8 ns | 592.6–616.1 | `log/slog` JSON handler, realistic line |
 
 Every row is `0 B/op` and `0 allocs/op`. That is the claim that travels between machines. The
 nanoseconds belong to this one.
 
-**`log/slog` is compared fairly now.** `RenderPath` against `SlogToDiscard` was always the wrong
-shape — one builds a line and never flushes, the other is a complete call. The head to head is
-`ErrorToDiscardText` against `SlogToDiscard`: the same call, the same discarded writer. 66.1 ns
-against 348.4 ns, roughly five times faster, neither allocating.
+**Against `log/slog`.** `RenderPath` against `SlogToDiscard` was always the wrong shape — one
+builds a line and never flushes, the other is a complete call. The head to head is the same call
+against the same discarded writer, at both message lengths:
+
+| one call, to `io.Discard` | `stacklog` | `log/slog` | faster by |
+|---|---|---|---|
+| `"hi"` with one attribute — text | 66.6 ns | 349.8 ns | **5.3×** |
+| `"upstream returned 502 for user:42"` with two attributes — text | 121.9 ns | 544.0 ns | **4.5×** |
+| the same line — JSON | 103.8 ns | 598.8 ns | **5.8×** |
+| allocations per call, JSON line | `0` | `2` (`16 B`) | — |
+
+`slog` allocates on the JSON path. `stacklog` does not allocate on either.
+
+End to end matters more than a builder benchmark, and the gap narrows there — which is the
+honest part of this comparison. 500,000 identical lines written to a real file on the same
+machine:
+
+| 500,000 lines to a file | ns per line | lines per second |
+|---|---|---|
+| `stacklog` text, 256 KB buffered | 192 | 5.2M |
+| `slog` text handler, 256 KB buffered | 571 | 1.75M |
+| `stacklog` JSON, 256 KB buffered | 141 | 7.1M |
+| `slog` JSON handler, 256 KB buffered | 633 | 1.58M |
+| `stacklog` text, one syscall per line | 446 | 2.2M |
+| `slog` text, one syscall per line | 867 | 1.15M |
+
+3.0× on buffered text, 4.5× on buffered JSON, 1.9× when both are doing one syscall per line.
+The multiplier shrinks because the write dominates end to end and both pay it. Anyone quoting a
+5× speedup from a builder benchmark is quoting the part of the cost they control.
+
+One number runs the other way, and it belongs here: the coloured text line is **137 bytes**
+against `slog`'s 105. Escapes are 40% of the build time and 30% of the file. `NoColors` or
+`FormatJSON` is the smaller line — `stacklog` JSON is 111 bytes against `slog` JSON at 128.
+
+What `slog` gives up this comparison does not measure: handlers and middleware, `WithGroup`,
+`LogValue` so a type decides how it renders, source attribution, a level set, and a logger that
+is safe to share between goroutines. `stacklog` is one logger per goroutine by design. Speed is
+one axis, and pretending it is the only one would be a worse advertisement than the table above.
 
 **What colour costs.** The same line with `NoColors` set is 40.0 ns against 66.1 ns. Escapes are
 about 26 ns of a 66 ns line, which means 40% of building a coloured line is emitting colour. Any
@@ -563,7 +599,9 @@ further optimisation here should start from that number rather than from a hunch
 **Read the long-line pair, not the short one.** At a two-character message there is no run of
 ordinary text to copy in bulk, so JSON looks as cheap as plain text and the escaping never shows
 up. With the message length the package is used at — `upstream returned 502 for user:42` with
-`user=vlad` and `ms=12.4` — a JSON line is 110.4 ns against 122.0 ns for the coloured text line.
+`user=vlad` and `ms=12.4` — a JSON line is 103.8 ns against 121.9 ns for the coloured text line.
+JSON mode used to cost 28% more than a coloured text line for the same content. It now costs 15%
+less. The escaping was the entire difference.
 
 Two changes since v1.4.0 shipped, each measured against the same baseline in the same sitting:
 
@@ -572,8 +610,10 @@ Two changes since v1.4.0 shipped, each measured against the same baseline in the
 | each escape assembled in a stack array and copied once, instead of a bounds-checked write per byte | 142.7 ns | 121.0 ns — coloured text, long line |
 | runs of ordinary text copied in bulk by the JSON escape writer | 182.5 ns | 109.8 ns — JSON, long line |
 
-The second one decided which format is cheaper. JSON mode used to cost 29% more than a coloured
-text line for the same content. It now costs 9% less. The escaping was the entire difference.
+The `after` column is the paired run that justified each change, taken against the commit before
+it. The table above is the current sweep of the same code. 109.8 and 103.8 are the same build
+measured twice; the difference is the machine being warmer, and it is inside the range column,
+which is why the ranges are printed.
 
 `RenderPath` measures 61.7 ns today against 64.6 ns when this section last said anything about
 it: fewer escape bytes per component, same colours, same order.

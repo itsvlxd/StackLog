@@ -89,3 +89,22 @@ func BenchmarkErrorToDiscardJSONLong(b *testing.B) {
 		l.Error("upstream returned 502 for user:42")
 	}
 }
+
+// The pair for log/slog at the message length it is actually used at. The short benchmark
+// measures the machinery around a two-character string; a real log line carries a sentence and
+// a couple of attributes, and that is where the difference in design shows up.
+func BenchmarkSlogTextLong(b *testing.B) {
+	l := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	for i := 0; i < b.N; i++ {
+		l.Error("upstream returned 502 for user:42", "user", "vlad", "ms", 12.4)
+	}
+}
+
+func BenchmarkSlogJSONLong(b *testing.B) {
+	l := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	for i := 0; i < b.N; i++ {
+		l.Error("upstream returned 502 for user:42", "user", "vlad", "ms", 12.4)
+	}
+}
