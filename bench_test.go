@@ -55,3 +55,17 @@ func BenchmarkErrorToDiscardJSON(b *testing.B) {
 		l.Error("hi")
 	}
 }
+
+// The colour budget, and the number that tells a reader what a style actually costs. The
+// same line with NoColors set lands within noise of the same line in JSON mode: what a
+// coloured line costs more than a plain one is the escapes, not the JSON machinery.
+//
+// Guarded here because "this package is fast" is only a claim if the part that makes it
+// slower is measured.
+func BenchmarkErrorToDiscardTextNoColors(b *testing.B) {
+	l := CreateLogger(Config{Style: Style{NoColors: true}}).WithWriter(io.Discard).WithParams("k", 1)
+
+	for i := 0; i < b.N; i++ {
+		l.Error("hi")
+	}
+}

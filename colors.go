@@ -32,105 +32,84 @@ const (
 	TargetBG colorTarget = 1
 )
 
-func (sb *StackBuffer) writeEachByte(c Color) *StackBuffer {
-	if c >= 100 {
-		sb.AppendByte('0' + byte(c/100))
-		sb.AppendByte('0' + byte((c/10)%10))
-		sb.AppendByte('0' + byte(c%10))
-	} else if c >= 10 {
-		sb.AppendByte('0' + byte(c/10))
-		sb.AppendByte('0' + byte(c%10))
-	} else {
-		sb.AppendByte('0' + byte(c))
+// appendDecimal writes v as one to three decimal digits at the end of dst and returns
+// the new length. dst must have room for three bytes.
+func appendDecimal(dst []byte, n int, v uint8) int {
+	switch {
+	case v >= 100:
+		dst[n], dst[n+1], dst[n+2] = '0'+v/100, '0'+(v/10)%10, '0'+v%10
+		return n + 3
+	case v >= 10:
+		dst[n], dst[n+1] = '0'+v/10, '0'+v%10
+		return n + 2
+	default:
+		dst[n] = '0' + v
+		return n + 1
 	}
-
-	return sb
 }
 
 func (sb *StackBuffer) writeRGBColor(target colorTarget, rgb ColorRGB) *StackBuffer {
-	sb.AppendByte(0x1b)
-	sb.AppendByte('[')
-
-	var ansiTarget Color
+	var e [24]byte
+	n := 2
+	e[0], e[1] = 0x1b, '['
 
 	if target == TargetFG {
-		ansiTarget = 38
+		e[2], e[3] = '3', '8'
 	} else {
-		ansiTarget = 48
+		e[2], e[3] = '4', '8'
 	}
+	n += 2
 
-	sb.writeEachByte(ansiTarget)
+	e[n], e[n+1], e[n+2] = ';', '2', ';'
+	n += 3
 
-	sb.WriteString(";2;")
+	n = appendDecimal(e[:], n, uint8(rgb.R))
+	e[n] = ';'
+	n++
+	n = appendDecimal(e[:], n, uint8(rgb.G))
+	e[n] = ';'
+	n++
+	n = appendDecimal(e[:], n, uint8(rgb.B))
+	e[n] = 'm'
+	n++
 
-	sb.writeEachByte(rgb.R)
-	sb.AppendByte(';')
-	sb.writeEachByte(rgb.G)
-	sb.AppendByte(';')
-	sb.writeEachByte(rgb.B)
-
-	sb.AppendByte('m')
-
-	return sb
+	return sb.writeInto(e[:n])
 }
 
 func (sb *StackBuffer) writeColor(target colorTarget, c Color) *StackBuffer {
-	var initColor Color = c
+	var e [24]byte
+	n := 2
+	e[0], e[1] = 0x1b, '['
 
-	sb.AppendByte(0x1b)
-	sb.AppendByte('[')
-
-	switch true {
+	switch {
 	case c >= 16:
-		// ANSI256 - \x1b[38;5;166m
-		var ansiTarget Color
-
 		if target == TargetFG {
-			ansiTarget = 38
+			e[2], e[3] = '3', '8'
 		} else {
-			ansiTarget = 48
+			e[2], e[3] = '4', '8'
 		}
-
-		sb.writeEachByte(ansiTarget)
-		sb.WriteString(";5;")
-		sb.writeEachByte(c)
+		n += 2
+		e[n], e[n+1], e[n+2] = ';', '5', ';'
+		n += 3
+		n = appendDecimal(e[:], n, uint8(c))
 	case c >= 8:
-		// ANSI16 - \x1b[42m
-		var ansiBase Color
-		if target == TargetFG {
-			if initColor > 7 {
-				ansiBase = 90
-			} else {
-				ansiBase = 30
-			}
-		} else {
-			if initColor > 7 {
-				ansiBase = 100
-			} else {
-				ansiBase = 40
-			}
+		base := uint8(90)
+		if target == TargetBG {
+			base = 100
 		}
-
-		c = ansiBase + (initColor % 8)
-
-		sb.writeEachByte(c)
+		n = appendDecimal(e[:], n, base+(uint8(c)-8))
 	default:
-		// ANSI8 - \x1b[32m
-		var ansiBase Color
-		if target == TargetFG {
-			ansiBase = 30
-		} else {
-			ansiBase = 40
+		base := uint8(30)
+		if target == TargetBG {
+			base = 40
 		}
-
-		c = ansiBase + initColor
-
-		sb.writeEachByte(c)
+		n = appendDecimal(e[:], n, base+uint8(c))
 	}
 
-	sb.AppendByte('m')
+	e[n] = 'm'
+	n++
 
-	return sb
+	return sb.writeInto(e[:n])
 }
 
 func hexCharToByte(ch byte) Color {
@@ -173,12 +152,7 @@ func HexToRGB(hex string) ColorRGB {
 // end of every component that opened a colour, which is why each line ends clean
 // and the next line starts from a known state. Callers do not normally need it.
 func (sb *StackBuffer) ResetColor() *StackBuffer {
-	sb.AppendByte(0x1b)
-	sb.AppendByte('[')
-	sb.AppendByte('0')
-	sb.AppendByte('m')
-
-	return sb
+	return sb.WriteString("\x1b[0m")
 }
 
 // FgColor writes the escape sequence for a foreground colour. val is a Color index
