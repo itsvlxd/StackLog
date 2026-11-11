@@ -37,7 +37,7 @@ func TestRenderLine(t *testing.T) {
 func TestPaddingWithoutColourWritesNoEscape(t *testing.T) {
 	l := CreateLogger(Config{})
 
-	l.Config.Style.Level[3] = NewStyle().Padding(Padding{Top: 1, Left: 1, Right: 1})
+	l.Config.Style.Level[ErrorLevel] = NewStyle().Padding(Padding{Top: 1, Left: 1, Right: 1})
 
 	l.Buffer.Reset()
 	l.addLevelPrefix(3)

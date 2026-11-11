@@ -148,7 +148,7 @@ func ExampleStackLog_Info_truncated() {
 func ExamplePadding() {
 	logger := stacklog.CreateLogger(stacklog.Config{Style: stacklog.Style{NoColors: true}})
 
-	logger.Config.Style.Level[3] = stacklog.NewStyle().
+	logger.Config.Style.Level[stacklog.ErrorLevel] = stacklog.NewStyle().
 		Padding(stacklog.Padding{Left: 1, Right: 1})
 
 	var buf bytes.Buffer

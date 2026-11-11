@@ -50,11 +50,11 @@ func TestCallerStyleSurvivesCreateLogger(t *testing.T) {
 	c := Config{Style: Style{Level: [MaxLevel]CompStyle{NewStyle().Foreground("#D75F5F")}}}
 	l := CreateLogger(c)
 
-	if l.Config.Style.Level[0] != c.Style.Level[0] {
-		t.Errorf("level 0 overwritten: got %v, want %v", l.Config.Style.Level[0], c.Style.Level[0])
+	if l.Config.Style.Level[DebugLevel] != c.Style.Level[DebugLevel] {
+		t.Errorf("level 0 overwritten: got %v, want %v", l.Config.Style.Level[DebugLevel], c.Style.Level[DebugLevel])
 	}
 
-	if l.Config.Style.Level[1] == (CompStyle{}) {
+	if l.Config.Style.Level[InfoLevel] == (CompStyle{}) {
 		t.Error("level 1 lost the preset")
 	}
 }
@@ -70,7 +70,7 @@ func TestPartialParamsStyle(t *testing.T) {
 	}}}
 	l := CreateLogger(c)
 
-	if l.Config.Style.Params[3] != c.Style.Params[3] {
+	if l.Config.Style.Params[ErrorLevel] != c.Style.Params[ErrorLevel] {
 		t.Error("params 3 overwritten")
 	}
 
@@ -91,7 +91,7 @@ func TestBlackIsExpressibleInForeground(t *testing.T) {
 	c := Config{Style: Style{Level: [MaxLevel]CompStyle{NewStyle().Foreground(Color(0))}}}
 	l := CreateLogger(c)
 
-	if !l.Config.Style.Level[0].fgSet || l.Config.Style.Level[0].fg != 0 {
+	if !l.Config.Style.Level[DebugLevel].fgSet || l.Config.Style.Level[DebugLevel].fg != 0 {
 		t.Error("black was not kept as a colour")
 	}
 }
@@ -100,7 +100,7 @@ func TestExplicitNoColourIsFilledByThePreset(t *testing.T) {
 	c := Config{Style: Style{Level: [MaxLevel]CompStyle{NewStyle().Foreground(ColorReset)}}}
 	l := CreateLogger(c)
 
-	if l.Config.Style.Level[0] == (CompStyle{}) {
+	if l.Config.Style.Level[DebugLevel] == (CompStyle{}) {
 		t.Error("the preset did not fill a component left unset by ColorReset")
 	}
 }
@@ -115,6 +115,39 @@ func TestParseColorValUnhandledTypesLeaveNothing(t *testing.T) {
 		parseColorVal(in, &col, &rgb, &set)
 		if set {
 			t.Errorf("%T left the flag set", in)
+		}
+	}
+}
+
+// MaxLevel sizes three public arrays, so adding a level changes their length and
+// breaks every caller who wrote an array literal. That is stated in the Style doc,
+// and this is the enforcement. It matters that the package builds cleanly with a level
+// inserted: Go allows a short array literal, so presets.go compiles with one label and
+// one colour missing, and the damage is silent. The sandbox run that found this printed
+// an Error line as FATA, because inserting a level before ErrorLevel renumbered it.
+//
+// Both halves are needed. The assignment pins the count and fails at build time, in
+// either direction. The labels are the semantic check that a renumbering cannot pass.
+func TestMaxLevelPinsTheStyleArrays(t *testing.T) {
+	var pinned [5]CompStyle = [MaxLevel]CompStyle{}
+	_ = pinned
+
+	var s Style
+	if len(s.Level) != int(MaxLevel) || len(s.Params) != int(MaxLevel) || len(s.LevelPrefix) != int(MaxLevel) {
+		t.Errorf("Style arrays are %d/%d/%d long, want all three at MaxLevel %d",
+			len(s.Level), len(s.Params), len(s.LevelPrefix), MaxLevel)
+	}
+
+	want := map[LogLevel]string{
+		DebugLevel: "DEBU",
+		InfoLevel:  "INFO",
+		WarnLevel:  "WARN",
+		ErrorLevel: "ERRO",
+		FatalLevel: "FATA",
+	}
+	for level, label := range want {
+		if got := defaultPreset().LevelPrefix[level]; got != label {
+			t.Errorf("level %d carries the label %q, want %q", level, got, label)
 		}
 	}
 }

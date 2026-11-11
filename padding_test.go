@@ -13,7 +13,7 @@ import (
 
 func TestBottomFlushedAtEndOfLine(t *testing.T) {
 	l := CreateLogger(Config{})
-	l.Config.Style.Level[3].p = Padding{Bottom: 2}
+	l.Config.Style.Level[ErrorLevel].p = Padding{Bottom: 2}
 
 	l.Buffer.Reset()
 	l.addLevelPrefix(3)
@@ -31,8 +31,8 @@ func TestBottomFlushedAtEndOfLine(t *testing.T) {
 
 func TestBottomTakesMaxAcrossTheLine(t *testing.T) {
 	l := CreateLogger(Config{})
-	l.Config.Style.Level[3] = NewStyle().Padding(Padding{Bottom: 1}).Foreground(5)
-	l.Config.Style.Params[3] = ParamsStyle{Value: NewStyle().Padding(Padding{Bottom: 3})}
+	l.Config.Style.Level[ErrorLevel] = NewStyle().Padding(Padding{Bottom: 1}).Foreground(5)
+	l.Config.Style.Params[ErrorLevel] = ParamsStyle{Value: NewStyle().Padding(Padding{Bottom: 3})}
 	l.params = []any{"k", 1}
 
 	l.Buffer.Reset()
@@ -52,7 +52,7 @@ func TestBottomTakesMaxAcrossTheLine(t *testing.T) {
 
 func TestBottomNotEmittedMidLine(t *testing.T) {
 	l := CreateLogger(Config{})
-	l.Config.Style.Level[3] = NewStyle().Padding(Padding{Bottom: 2}).Foreground(5)
+	l.Config.Style.Level[ErrorLevel] = NewStyle().Padding(Padding{Bottom: 2}).Foreground(5)
 	l.params = []any{"k", 1}
 
 	l.Buffer.Reset()
@@ -69,7 +69,7 @@ func TestBottomNotEmittedMidLine(t *testing.T) {
 
 func TestTopHonouredAtLineStart(t *testing.T) {
 	l := CreateLogger(Config{})
-	l.Config.Style.Level[3] = NewStyle().Padding(Padding{Top: 2}).Foreground(5)
+	l.Config.Style.Level[ErrorLevel] = NewStyle().Padding(Padding{Top: 2}).Foreground(5)
 
 	l.Buffer.Reset()
 	l.addLevelPrefix(3)
@@ -83,8 +83,8 @@ func TestTopHonouredAtLineStart(t *testing.T) {
 
 func TestTopNotHonouredMidLine(t *testing.T) {
 	l := CreateLogger(Config{})
-	l.Config.Style.Level[3] = NewStyle().Foreground(5)
-	l.Config.Style.Params[3] = ParamsStyle{Param: NewStyle().Padding(Padding{Top: 1})}
+	l.Config.Style.Level[ErrorLevel] = NewStyle().Foreground(5)
+	l.Config.Style.Params[ErrorLevel] = ParamsStyle{Param: NewStyle().Padding(Padding{Top: 1})}
 	l.params = []any{"k", 1}
 
 	l.Buffer.Reset()

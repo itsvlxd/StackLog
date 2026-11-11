@@ -10,8 +10,8 @@ import (
 func TestUnknownPresetFallsBackToDefault(t *testing.T) {
 	l := CreateLogger(Config{Style: Style{Preset: "no-such-preset"}})
 
-	if l.Config.Style.Level[3] != defaultPreset().Level[3] {
-		t.Errorf("unknown preset did not fall back to default: got %v", l.Config.Style.Level[3])
+	if l.Config.Style.Level[ErrorLevel] != defaultPreset().Level[ErrorLevel] {
+		t.Errorf("unknown preset did not fall back to default: got %v", l.Config.Style.Level[ErrorLevel])
 	}
 }
 
@@ -24,11 +24,11 @@ func TestSingleComponentOverrideWinsAgainstPreset(t *testing.T) {
 	}}
 	l := CreateLogger(c)
 
-	if l.Config.Style.Level[0] != c.Style.Level[0] {
+	if l.Config.Style.Level[DebugLevel] != c.Style.Level[DebugLevel] {
 		t.Error("the caller's component was replaced by the preset")
 	}
 
-	if l.Config.Style.Level[1] != badgePreset().Level[1] {
+	if l.Config.Style.Level[InfoLevel] != badgePreset().Level[InfoLevel] {
 		t.Error("the preset did not fill a component left unset")
 	}
 }
@@ -87,12 +87,12 @@ func TestSingleLabelOverrideWinsAgainstPreset(t *testing.T) {
 	}}
 	l := CreateLogger(c)
 
-	if l.Config.Style.LevelPrefix[0] != "!!" {
-		t.Errorf("the caller's label was replaced by the preset: got %q", l.Config.Style.LevelPrefix[0])
+	if l.Config.Style.LevelPrefix[DebugLevel] != "!!" {
+		t.Errorf("the caller's label was replaced by the preset: got %q", l.Config.Style.LevelPrefix[DebugLevel])
 	}
 
-	if l.Config.Style.LevelPrefix[3] != "ERR" {
-		t.Errorf("the preset did not fill an empty label: got %q", l.Config.Style.LevelPrefix[3])
+	if l.Config.Style.LevelPrefix[ErrorLevel] != "ERR" {
+		t.Errorf("the preset did not fill an empty label: got %q", l.Config.Style.LevelPrefix[ErrorLevel])
 	}
 }
 
