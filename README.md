@@ -37,6 +37,7 @@ dependency outside the standard library.
 - Padding around a line, including coloured blocks
 - Optional prefix and timestamp
 - Configurable writer — file, buffer, `io.Discard`
+- JSON Lines output through `Config.Format`, with colours suppressed and an exported `Entry`
 - Write errors returned, including short writes
 
 ## Installation
@@ -414,6 +415,61 @@ write failed: stacklog: short write
 > following lines. A short write also means the padding never reaches the writer,
 > because the flush failed before it got there.
 
+### JSON output
+
+`Config.Format` switches what one call writes. `FormatJSON` emits a single JSON object per
+call, newline terminated, so the line a parser reads is the line the logger built. The zero
+value writes text, and an unknown format name resolves to text, so nothing that works today
+changes unless you ask for it.
+
+```go
+logger := stacklog.CreateLogger(stacklog.Config{Format: stacklog.FormatJSON})
+
+logger.WithPrefix("http").WithParams("user", "vlad", "ms", 12.4).Error("upstream 502")
+```
+
+```text
+{"level":"error","prefix":"http","msg":"upstream 502","params":{"user":"vlad","ms":12.4}}
+```
+
+![JSON output](assets/json-output.gif)
+
+Above it, in the same showcase section, the same call in text mode: `ERRO http: upstream 502
+user=vlad ms=12.4`. Adding `Timestamp: true` puts a `"time"` field first, in RFC3339 when
+`TimeFormat` is left empty — `"time":"2026-11-11T15:46:52+02:00"` — because a JSON timestamp is
+meant to be parsed and `"2026-11-11 15:46:52"` carries no offset.
+
+Colours are off because escape codes inside a JSON string are noise to a parser, not because
+you asked. `Style.NoColors` is what does it, and `Config.Style.NoColors` reads back as `true`
+on a JSON logger. Padding is inert, and so is `Style.LevelPrefix`: in JSON the level is a field
+with five fixed values, so a label like `DEBU` or `!!` would either duplicate it or replace it
+with something a parser cannot match on.
+
+The shape is exported rather than implied, which is the point of the mode:
+
+```go
+var e stacklog.Entry
+
+if err := json.Unmarshal(line, &e); err != nil {
+	return err
+}
+
+fmt.Println(e.Level, e.Msg, e.Params["user"], e.Truncated)
+```
+
+Types keep their JSON forms. A number is a number, a bool is a bool, a duration is the
+nanoseconds it already is in text mode, a `nil` interface is `null`, and an error is the string
+from `Error()`. A value the package cannot render is the same `<unsupported>` token text mode
+writes — kept distinct from `null` so "could not render this" is not confused with "this is
+nil". Keys that are not strings keep their text-mode rendering inside quotes, so
+`WithParams(1, "x")` writes `"1":"x"`.
+
+A line too big for the buffer is cut where a cut cannot break it. The message is the field
+that gives way: cut inside its own string, ends with `...`, and the object gains
+`"truncated":true`. A key/value pair that will not fit is not written at all — never half a
+pair, never a dangling `"key":`. Content stops at 1004 bytes in JSON mode against 1020 in text
+mode, because the tail that closes an object has to be reserved rather than hoped for.
+
 ### Fatal
 
 ```go
@@ -431,7 +487,9 @@ which is why the flush happens here instead of being left to your `defer`.
 
 The line takes about 64 ns to build. Written to a real file one syscall at a time,
 the same call costs 233 ns — roughly three quarters of a log line is the write.
-A buffered writer is the whole difference, and `WithWriter` already takes one:
+The same call in JSON mode is cheaper to build than the coloured one: 43 ns against 69 ns,
+both measured against `io.Discard`, because a JSON line emits no escape sequences. A buffered
+writer is the whole difference, and `WithWriter` already takes one:
 
 ```go
 bw := bufio.NewWriterSize(f, 256*1024)
