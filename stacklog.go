@@ -293,6 +293,34 @@ func (sl *StackLog) Fatal(message string) {
 	os.Exit(1)
 }
 
+// Plain writes message to the logger's writer with nothing added: no level label, no prefix,
+// no timestamp, no key/value pairs, no colour and no padding. It exists for output that is not
+// a log line - a banner, an ASCII wordmark, help text - on the same writer the logger already
+// owns, so a program does not need a second route to stdout just to print one thing.
+//
+// It is not a log level, so Config.MinLevel does not apply to it. A logger set to warn still
+// prints its banner.
+//
+// It is not a format either. On a logger in FormatJSON mode a plain write stays exactly what it
+// was handed: JSON mode wraps log lines, not arbitrary text, and turning a banner into a JSON
+// string would make it useless to the human it was written for. The consequence is stated rather
+// than hidden - a JSON log stream that also prints a banner contains one line that is not an
+// object, so whatever parses it has to skip the lines that do not begin with "{".
+//
+// The bytes travel through the same fixed buffer as everything else, so the truncation rule
+// applies: a plain payload longer than the content area is cut and the line ends with "...". A
+// payload with newlines in it is allowed - they are just bytes - but it still has to fit in 1020
+// bytes, and one call is still one Write to the writer.
+func (sl *StackLog) Plain(message string) error {
+	buf := sl.Buffer
+
+	buf.WriteString(message)
+	buf.markTruncated()
+	buf.WriteNL()
+
+	return sl.printBuffer()
+}
+
 func (sl *StackLog) addTimestamp() {
 	buf := sl.Buffer
 	tsStyle := sl.Config.Style.Timestamp

@@ -59,6 +59,14 @@
 // will not fit is dropped whole - never half a pair, never a dangling "key":. Either way the
 // reader is told, which is what separates a complete line from a line that lost something.
 //
+// Plain output is a third thing, not a third format. Plain writes the payload with no level
+// label, no prefix, no timestamp, no params, no colour and no padding - a banner, an ASCII
+// wordmark, help text - through the same fixed buffer and the same single Write. It is not a log
+// level, so MinLevel does not filter it, and it is not wrapped by FormatJSON: a banner turned
+// into a JSON string is useless to the person it was printed for. A JSON stream that also prints
+// a banner therefore contains one line that is not an object, which is stated here because the
+// alternative is a parser failing on it in the dark.
+//
 // The writer is the caller's choice, and it is where the cost of a log line lives.
 // One line is built in a fixed buffer and handed to a single Write call, so the
 // formatting is the smaller half: about 62 ns to build a coloured line against roughly
