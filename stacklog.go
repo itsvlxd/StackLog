@@ -47,7 +47,8 @@ var (
 // Config controls what a logger writes.
 //
 // TimeFormat is a Go reference-time layout, for example "15:04:05". When it is
-// empty, time.DateTime is used.
+// empty, time.DateTime is used in text mode and time.RFC3339 in JSON mode: a JSON
+// timestamp is meant to be parsed, and "2026-11-11 13:04:22" carries no offset.
 //
 // Style is optional. Any part left as the zero value falls back to the package
 // default for that component. Config is copied by CreateLogger, so changing it
@@ -61,11 +62,26 @@ var (
 // MinLevel above FatalLevel silences everything including Fatal, which is a decision
 // rather than an accident, and it is the one way to lose the line that explains a
 // crash.
+// Format selects what one call writes: FormatText, the coloured line, or FormatJSON,
+// one JSON object per call terminated by a newline. The zero value is the empty string,
+// which is FormatText, so a Config that says nothing about format writes what it wrote
+// before the field existed. An unknown name resolves to FormatText, the same rule an
+// unknown preset name follows.
+//
+// FormatJSON suppresses colours through NoColors rather than through a second path, so
+// Style colour components are inert in that mode and Config.Style.NoColors reads back as
+// true on a JSON logger. Padding is inert as well: Top and Bottom produce extra lines,
+// and between JSON objects those are stray newlines rather than padding. Style.LevelPrefix
+// is not read either, because the level is a field with fixed values there - see levelNames.
+//
+// Content in a JSON line stops at 1004 bytes against 1020 in text mode. The wider tail is
+// the price of a line a parser can always close.
 type Config struct {
 	Style      Style
 	Timestamp  bool
 	TimeFormat string
 	MinLevel   LogLevel
+	Format     string
 }
 
 // Style holds the colours for each component of a line. Set a style with
@@ -139,10 +155,15 @@ func CreateLogger(config Config) *StackLog {
 
 	// Init default values
 	if config.TimeFormat == "" {
-		config.TimeFormat = time.DateTime
+		if config.Format == FormatJSON {
+			config.TimeFormat = time.RFC3339
+		} else {
+			config.TimeFormat = time.DateTime
+		}
 	}
 
 	loadPreset(&config.Style)
+	applyJSONFormat(&config, sb)
 
 	return &StackLog{Config: config, Buffer: sb, wr: os.Stdout}
 }
@@ -162,6 +183,7 @@ func (sl *StackLog) derive() StackLog {
 	newLogger := *sl
 
 	newLogger.Buffer = CreateBuffer()
+	applyJSONFormat(&newLogger.Config, newLogger.Buffer)
 
 	return newLogger
 }
@@ -211,6 +233,12 @@ func (sl *StackLog) WithWriter(w io.Writer) *StackLog {
 // ErrShortWrite is returned when the writer accepted fewer bytes than the line.
 // By the io.Writer contract a short write is a failure, not a partial success.
 var ErrShortWrite = errors.New("stacklog: short write")
+
+// ErrLineTooLarge is returned by a JSON log call whose own structure will not fit the
+// fixed buffer. It never comes from text mode: a cut text line is still a line, while half
+// an object in a log stream is something a reader cannot tell apart from a corrupt one. No
+// output is written when it is returned.
+var ErrLineTooLarge = errors.New("stacklog: json line does not fit in the fixed buffer")
 
 // Enabled reports whether a level writes on this logger. It is the same comparison
 // print makes, exposed so a caller can skip building a message it knows will be
@@ -355,6 +383,13 @@ func (sl *StackLog) print(level LogLevel, message string) error {
 	// allocate.
 	if !sl.Enabled(level) {
 		return nil
+	}
+
+	// One comparison on the format, and the two builders never share a path. The text
+	// builder is untouched by JSON mode, which is the point: an additive field should not
+	// put a branch inside every step of the line it does not change.
+	if sl.Config.Format == FormatJSON {
+		return sl.printJSON(level, message)
 	}
 
 	if sl.Config.Timestamp {

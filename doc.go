@@ -46,6 +46,19 @@
 // Config when a logger is derived, so setting it at creation reaches every derived
 // logger, and changing it on the base afterwards does not reach the copy.
 //
+// Format switches what one call writes. FormatJSON emits one JSON object per call, newline
+// terminated, and it is why the fixed buffer has two content areas: 1020 bytes for a text line
+// against 1004 for a JSON one. A JSON line is only worth reading if the structure that opens it
+// is always closed, so the wider tail is reserved rather than hoped for. Colours are suppressed
+// through NoColors rather than beside it, padding and Style.LevelPrefix are inert, and the level
+// is a field with a fixed set of values. Entry is exported, so the shape of a line is part of the
+// API rather than something a caller reverse-engineers from an example.
+//
+// A JSON line that will not fit is cut where a cut cannot break it: the msg value is cut inside
+// its own string, ends with "...", and the object gains "truncated":true. A key/value pair that
+// will not fit is dropped whole - never half a pair, never a dangling "key":. Either way the
+// reader is told, which is what separates a complete line from a line that lost something.
+//
 // The writer is the caller's choice, and it is where the cost of a log line lives.
 // One line is built in a fixed buffer and handed to a single Write call, so the
 // formatting is the smaller half: about 64 ns to build a line against roughly 233 ns
