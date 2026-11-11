@@ -24,15 +24,27 @@ const truncateReserve = len(truncateMark) + 1
 type StackBuffer struct {
 	Buffer    [1024]byte
 	BufLen    int
+	reserve   int
 	lineStart bool
 	maxBottom int
 	truncated bool
 }
 
 // usable is how much of the buffer content may occupy. The tail is reserved for
-// the marker and the terminator.
+// the marker and the terminator. reserve is a field rather than the constant because
+// a JSON line needs a wider tail than a text line: the structure that opens has to be
+// closed, and 4 bytes is not enough to close an object.
+//
+// A buffer built as a zero value gets the text reserve rather than none. StackBuffer is
+// exported with exported fields, so "var sb StackBuffer" is a legal way to make one, and a
+// zero reserve would let a content write run into the tail the package promised to keep.
 func (sb *StackBuffer) usable() int {
-	return len(sb.Buffer) - truncateReserve
+	reserve := sb.reserve
+	if reserve < truncateReserve {
+		reserve = truncateReserve
+	}
+
+	return len(sb.Buffer) - reserve
 }
 
 // markTruncated writes the marker into the reserved tail. It is a no-op on a line
@@ -55,6 +67,7 @@ func CreateBuffer() *StackBuffer {
 	var sb StackBuffer
 
 	sb.BufLen = 0
+	sb.reserve = truncateReserve
 	sb.lineStart = true
 
 	return &sb
