@@ -208,9 +208,9 @@ Per-level and per-pair styles:
 ```go
 styled := stacklog.CreateLogger(stacklog.Config{})
 
-styled.Config.Style.Level[3] = stacklog.NewStyle().Foreground("#D75F5F")
+styled.Config.Style.Level[stacklog.ErrorLevel] = stacklog.NewStyle().Foreground("#D75F5F")
 
-styled.Config.Style.Params[3] = stacklog.ParamsStyle{
+styled.Config.Style.Params[stacklog.ErrorLevel] = stacklog.ParamsStyle{
 	Param: stacklog.NewStyle().Foreground(242),
 	Equal: stacklog.NewStyle().Foreground(242),
 	Value: stacklog.NewStyle().Foreground(15),
@@ -316,7 +316,7 @@ coloured block, so a badge with a background extends over them.
 ```go
 badge := stacklog.CreateLogger(stacklog.Config{})
 
-badge.Config.Style.Level[3] = stacklog.NewStyle().
+badge.Config.Style.Level[stacklog.ErrorLevel] = stacklog.NewStyle().
 	Background("#D75F5F").
 	Foreground(15).
 	Padding(stacklog.Padding{Top: 1, Left: 1, Right: 1, Bottom: 1})
