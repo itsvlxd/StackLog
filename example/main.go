@@ -135,9 +135,9 @@ func prefix() {
 func styles() {
 	logger := stacklog.CreateLogger(stacklog.Config{})
 
-	logger.Config.Style.Level[3] = stacklog.NewStyle().Foreground("#D75F5F")
+	logger.Config.Style.Level[stacklog.ErrorLevel] = stacklog.NewStyle().Foreground("#D75F5F")
 
-	logger.Config.Style.Params[3] = stacklog.ParamsStyle{
+	logger.Config.Style.Params[stacklog.ErrorLevel] = stacklog.ParamsStyle{
 		Param: stacklog.NewStyle().Foreground(242),
 		Equal: stacklog.NewStyle().Foreground(242),
 		Value: stacklog.NewStyle().Foreground(15),
@@ -168,7 +168,7 @@ func presets() {
 func padding() {
 	logger := stacklog.CreateLogger(stacklog.Config{})
 
-	logger.Config.Style.Level[3] = stacklog.NewStyle().
+	logger.Config.Style.Level[stacklog.ErrorLevel] = stacklog.NewStyle().
 		Background("#D75F5F").
 		Foreground(15).
 		Padding(stacklog.Padding{Left: 2, Right: 2})
