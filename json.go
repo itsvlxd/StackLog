@@ -284,60 +284,94 @@ func (sb *StackBuffer) writeJSONString(s string) bool {
 	var i, used int
 
 	for i < len(s) && used < room {
-		r, size := utf8.DecodeRuneInString(s[i:])
+		b := s[i]
 
-		// Everything from a space up, except the double quote, the backslash, and a byte that
-		// decoded to nothing, is legal JSON inside a string as it is. That covers plain ASCII
-		// and valid multi-byte UTF-8 alike, and it is the common case in a log line, so it is
-		// checked first.
-		if r >= 0x20 && r != '"' && r != '\\' && !(r == utf8.RuneError && size == 1) {
-			if size > room-used {
-				break
+		// A run of ordinary printable ASCII is copied in one move. This is the point of the
+		// fast path: a log message is mostly characters JSON has no opinion about, and deciding
+		// that one byte at a time costs more than the decision is worth. Bytes 0x80 and above are
+		// left to the decode below, where validity is actually checked rather than assumed.
+		if b >= 0x20 && b < 0x80 && b != '"' && b != '\\' {
+			start := i
+
+			for i < len(s) && s[i] >= 0x20 && s[i] < 0x80 && s[i] != '"' && s[i] != '\\' {
+				i++
 			}
 
-			copy(sb.Buffer[sb.BufLen+used:], s[i:i+size])
-			used += size
-			i += size
+			n := i - start
+
+			if n > room-used {
+				n = room - used
+				i = start + n
+			}
+
+			copy(sb.Buffer[sb.BufLen+used:], s[start:start+n])
+			used += n
 
 			continue
 		}
 
 		var piece []byte
 
-		switch {
-		case r == '"':
-			esc[0], esc[1] = '\\', '"'
-			piece = esc[:2]
-		case r == '\\':
-			esc[0], esc[1] = '\\', '\\'
-			piece = esc[:2]
-		case r == '\n':
-			esc[0], esc[1] = '\\', 'n'
-			piece = esc[:2]
-		case r == '\r':
-			esc[0], esc[1] = '\\', 'r'
-			piece = esc[:2]
-		case r == '\t':
-			esc[0], esc[1] = '\\', 't'
-			piece = esc[:2]
-		case r == 0x08:
-			esc[0], esc[1] = '\\', 'b'
-			piece = esc[:2]
-		case r == 0x0c:
-			esc[0], esc[1] = '\\', 'f'
-			piece = esc[:2]
-		case r < 0x20:
-			// A control byte with no short escape. json.Valid and every decoder reached by a
-			// Go caller require it escaped.
-			esc[0], esc[1], esc[2], esc[3] = '\\', 'u', '0', '0'
-			esc[4] = jsonHexDigits[r>>4]
-			esc[5] = jsonHexDigits[r&0x0f]
-			piece = esc[:6]
-		default:
-			// utf8.RuneError with size 1: a byte that is not valid UTF-8. JSON must be valid
-			// UTF-8, so the replacement character stands in for the raw byte.
+		if b >= 0x80 {
+			_, size := utf8.DecodeRuneInString(s[i:])
+
+			if size > 1 {
+				// Valid multi-byte UTF-8 needs no escape and JSON accepts it as itself.
+				// Escaping it to \\uXXXX would be legal and would make a line harder to read.
+				// A character never splits: if it will not fit whole, the cut happens before it.
+				if size > room-used {
+					break
+				}
+
+				copy(sb.Buffer[sb.BufLen+used:], s[i:i+size])
+				used += size
+				i += size
+
+				continue
+			}
+
+			// A byte that is not valid UTF-8 at all. JSON must be valid UTF-8, so the
+			// replacement character stands in for it instead of the raw byte going through.
 			esc[0], esc[1], esc[2] = 0xEF, 0xBF, 0xBD
 			piece = esc[:3]
+		} else {
+			switch b {
+			case '"':
+				esc[0], esc[1] = '\\', '"'
+				piece = esc[:2]
+			case '\\':
+				esc[0], esc[1] = '\\', '\\'
+				piece = esc[:2]
+			case '\n':
+				esc[0], esc[1] = '\\', 'n'
+				piece = esc[:2]
+			case '\r':
+				esc[0], esc[1] = '\\', 'r'
+				piece = esc[:2]
+			case '\t':
+				esc[0], esc[1] = '\\', 't'
+				piece = esc[:2]
+			case 0x08:
+				esc[0], esc[1] = '\\', 'b'
+				piece = esc[:2]
+			case 0x0c:
+				esc[0], esc[1] = '\\', 'f'
+				piece = esc[:2]
+			default:
+				if b < 0x20 {
+					// A control byte with no short escape. json.Valid and every decoder a Go
+					// caller reaches require it escaped.
+					esc[0], esc[1], esc[2], esc[3] = '\\', 'u', '0', '0'
+					esc[4] = jsonHexDigits[b>>4]
+					esc[5] = jsonHexDigits[b&0x0f]
+					piece = esc[:6]
+				} else {
+					// DEL and anything else that is a single byte and legal inside a JSON
+					// string as it is.
+					esc[0] = b
+					piece = esc[:1]
+				}
+			}
 		}
 
 		if len(piece) > room-used {
@@ -346,7 +380,7 @@ func (sb *StackBuffer) writeJSONString(s string) bool {
 
 		copy(sb.Buffer[sb.BufLen+used:], piece)
 		used += len(piece)
-		i += size
+		i++
 	}
 
 	sb.BufLen += used

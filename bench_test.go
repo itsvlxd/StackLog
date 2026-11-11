@@ -69,3 +69,23 @@ func BenchmarkErrorToDiscardTextNoColors(b *testing.B) {
 		l.Error("hi")
 	}
 }
+
+// The realistic line, because a two-character message measures the wrong thing. At "hi" there
+// is no run of ordinary text to copy in bulk, so JSON mode looks as cheap as plain text and the
+// escaping never shows up. With the message length the package is actually used at, JSON costs
+// what escaping costs - which is the number the fixed-buffer escape writer has to stay sharp on.
+func BenchmarkErrorToDiscardTextLong(b *testing.B) {
+	l := CreateLogger(Config{}).WithWriter(io.Discard).WithParams("user", "vlad", "ms", 12.4)
+
+	for i := 0; i < b.N; i++ {
+		l.Error("upstream returned 502 for user:42")
+	}
+}
+
+func BenchmarkErrorToDiscardJSONLong(b *testing.B) {
+	l := CreateLogger(Config{Format: FormatJSON}).WithWriter(io.Discard).WithParams("user", "vlad", "ms", 12.4)
+
+	for i := 0; i < b.N; i++ {
+		l.Error("upstream returned 502 for user:42")
+	}
+}
