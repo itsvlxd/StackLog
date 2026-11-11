@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/itsvlxd/StackLog/compare/v1.4.0...v1.4.1) (2026-11-11)
+
+### Performance Improvements
+
+* **colors:** build each escape once and copy it into the buffer in one write ([cd4be9a](https://github.com/itsvlxd/StackLog/commit/cd4be9a2830541c0353efbf907ce3bf849120c7a))
+* **json:** copy runs of ordinary text in one move rather than escaping byte by byte ([3c1a897](https://github.com/itsvlxd/StackLog/commit/3c1a897d8d727f57332225e9bc9c1e2746a9118c))
+
 ## [1.4.0](https://github.com/itsvlxd/StackLog/compare/v1.3.0...v1.4.0) (2026-11-11)
 
 ### Features
