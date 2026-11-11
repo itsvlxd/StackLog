@@ -44,6 +44,7 @@ var sections = []struct {
 	{"timestamp", timestamp},
 	{"file", file},
 	{"write-errors", writeErrors},
+	{"json", jsonOutput},
 	{"fatal", fatal},
 }
 
@@ -227,6 +228,21 @@ func writeErrors() {
 	if err := logger.WithWriter(shortWriter{n: 4}).Error("the writer accepted fewer bytes than the line"); err != nil {
 		fmt.Println("write failed:", err)
 	}
+}
+
+// json shows the same call in both formats, so the difference is one line rather than two
+// programs. The structured line carries no escape codes at all: colours are suppressed by
+// the format, not asked for. It is a short message on purpose - a JSON object is roughly twice
+// the width of the text line it replaces, and a capture that wide is a capture the README
+// renders too small to read.
+func jsonOutput() {
+	kv := []any{"user", "vlad", "ms", 12.4}
+
+	text := stacklog.CreateLogger(stacklog.Config{}).WithPrefix("http").WithParams(kv...)
+	structured := stacklog.CreateLogger(stacklog.Config{Format: stacklog.FormatJSON}).WithPrefix("http").WithParams(kv...)
+
+	text.Error("upstream 502")
+	structured.Error("upstream 502")
 }
 
 // fatal writes the line and exits with status 1, so it is the last section and

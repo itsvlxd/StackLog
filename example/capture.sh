@@ -76,6 +76,7 @@ padding:connection-reset-error
 timestamp:info-request-timestamp
 file:wrote-line-readme-log
 write-errors:handling-write-errors
+json:json-output
 fatal:shutting-down-fatal
 EOF
 
