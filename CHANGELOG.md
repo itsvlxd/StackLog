@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/itsvlxd/StackLog/compare/v1.4.1...v1.5.0) (2026-11-11)
+
+### Features
+
+* **log:** Plain writes a payload with nothing added to it ([db3ee7d](https://github.com/itsvlxd/StackLog/commit/db3ee7dcc1c40a5a2a4a6c6a364d923e4470aa92))
+
 ## [1.4.1](https://github.com/itsvlxd/StackLog/compare/v1.4.0...v1.4.1) (2026-11-11)
 
 ### Performance Improvements
