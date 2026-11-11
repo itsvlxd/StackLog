@@ -22,6 +22,15 @@
 #
 # The GIF palette is still a real ceiling: 256 colours, indexed 8-bit. GIF is animated
 # and freeze has no GIF output at all, so this is the trade being made, knowingly.
+#
+# Canvas width is left alone, and the alternative was measured rather than assumed. Setting
+# FontSize to 15 fits the widest section at 1006 pixels instead of 1378 - inside the README
+# column rather than past it - and it costs the one colour these captures exist to show. At
+# FontSize 22 the nearest palette entry to #D75F5F is #DA6053, three units off in red. At 15
+# it is #C15C52, twenty-two units off. A smaller font spends the same 256 entries on more
+# glyph blending, so the exact value drops out of the palette entirely. Capping Columns is
+# worse still: it wraps a long line onto a second row, which misrepresents what the logger
+# actually wrote. GitHub scales the wide captures down; it cannot un-round a colour.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -31,7 +40,7 @@ mode=vhs
 case "${1:-}" in
   --png) mode=png ;;
   -h|--help)
-    sed -n '2,24p' "$0"
+    sed -n '2,/^set -euo/p' "$0"
     exit 0
     ;;
 esac
