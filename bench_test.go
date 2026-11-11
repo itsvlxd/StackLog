@@ -36,3 +36,22 @@ func BenchmarkSlogToDiscard(b *testing.B) {
 		l.Error("hi", "k", 1)
 	}
 }
+
+// The same call in both formats, to io.Discard, so what is being measured is the builder
+// rather than the terminal. Escaping is the extra work JSON mode takes on, and a caller
+// choosing a format should be able to see what it costs.
+func BenchmarkErrorToDiscardText(b *testing.B) {
+	l := CreateLogger(Config{}).WithWriter(io.Discard).WithParams("k", 1)
+
+	for i := 0; i < b.N; i++ {
+		l.Error("hi")
+	}
+}
+
+func BenchmarkErrorToDiscardJSON(b *testing.B) {
+	l := CreateLogger(Config{Format: FormatJSON}).WithWriter(io.Discard).WithParams("k", 1)
+
+	for i := 0; i < b.N; i++ {
+		l.Error("hi")
+	}
+}

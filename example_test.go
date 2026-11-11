@@ -2,6 +2,7 @@ package stacklog_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -186,4 +187,29 @@ func ExampleStyle() {
 	badge.Error("the level is a block, with padding inside it")
 	muted.Warn("low-chroma palette, full-word labels")
 	custom.Info("only level 0 would be the override; this is level 1 from the preset")
+}
+
+// A JSON line is one object per call, newline terminated, with colours suppressed because
+// escape codes inside a JSON string are noise to a parser. Entry is exported, so the shape is
+// something a caller decodes rather than guesses. Timestamp is left off here because an
+// // Output: block has to match bytes exactly.
+func ExampleEntry() {
+	var out bytes.Buffer
+
+	logger := stacklog.CreateLogger(stacklog.Config{Format: stacklog.FormatJSON}).WithWriter(&out)
+
+	logger.WithPrefix("http").WithParams("user", "vlad", "ms", 12.4).Error("upstream returned 502")
+
+	var e stacklog.Entry
+
+	if err := json.Unmarshal(out.Bytes(), &e); err != nil {
+		fmt.Println(err)
+
+		return
+	}
+
+	fmt.Printf("%s %s %s %+v %v\n", e.Level, e.Prefix, e.Msg, e.Params, e.Truncated)
+
+	// Output:
+	// error http upstream returned 502 map[ms:12.4 user:vlad] false
 }
