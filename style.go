@@ -217,3 +217,34 @@ func (sl *StackLog) addPostStyle(style CompStyle) {
 		buf.ResetColor()
 	}
 }
+
+// framePre and framePost are the padding-aware pair for a progress frame. They exist as a
+// separate pair rather than reusing addPreStyle and addPostStyle because of two lines of that
+// code: Top padding is written when the buffer is at a line start, and Bottom padding is
+// recorded to be flushed at the end of the line. A frame is one line that gets redrawn, so both
+// of those would move the bar off the line it lives on. Colours, Left and Right are honoured.
+func (sl *StackLog) framePre(style CompStyle) {
+	buf := sl.Buffer
+
+	if buf.lineStart {
+		buf.lineStart = false
+	}
+
+	sl.addColorStyle(buf, style)
+
+	for i := 0; i < style.p.Left; i++ {
+		buf.WriteBlank()
+	}
+}
+
+func (sl *StackLog) framePost(style CompStyle) {
+	buf := sl.Buffer
+
+	for i := 0; i < style.p.Right; i++ {
+		buf.WriteBlank()
+	}
+
+	if sl.hasColor(style) {
+		buf.ResetColor()
+	}
+}

@@ -20,8 +20,9 @@ const (
 )
 
 // resolveColor answers the colour question once, at the point where the writer is known, and the
-// answer is stored on the logger rather than recomputed per line. Order matters and each rule is
-// reachable from the outside:
+// answer is stored on the logger rather than recomputed per line. It takes the terminal verdict as an
+// argument rather than deriving it, because isTerminal costs a Stat syscall and the same call already
+// answers the question Progress asks. Order matters and each rule is reachable from the outside:
 //
 //  1. Style.NoColors is the absolute kill switch it has always been. It wins over Colors and it
 //     can never turn colour on, which is what its current tests promise.
@@ -34,7 +35,10 @@ const (
 // because the package treats a message as bytes to copy and has no model of what the text means.
 // NoColors and ColorsOff are not a sanitizer, and a message built from anything outside the program
 // can contain a control sequence.
-func resolveColor(config Config, w io.Writer) bool {
+//
+// ColorsOn is permission for colour, not for control sequences. Progress reads isTTY instead, so a
+// logger that forces colour into a file still does not draw a bar into it.
+func resolveColor(config Config, tty bool) bool {
 	if config.Style.NoColors {
 		return false
 	}
@@ -45,7 +49,7 @@ func resolveColor(config Config, w io.Writer) bool {
 	case ColorsOff:
 		return false
 	default:
-		return isTerminal(w)
+		return tty
 	}
 }
 

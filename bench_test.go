@@ -4,9 +4,11 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 )
 
 var benchOut []byte
+var progressOut int
 
 // Render path only — no flush. This is the fair measurement of your code.
 // You cannot benchmark the full call against log/slog yet, because os.Stdout
@@ -114,3 +116,94 @@ func BenchmarkSlogJSONLong(b *testing.B) {
 		l.Error("upstream returned 502 for user:42", "user", "vlad", "ms", 12.4)
 	}
 }
+
+// The progress path, measured separately because it makes a different promise: a tick that is not due is
+// arithmetic and two comparisons with no syscall and no allocation, and the redraws it skips are the
+// whole reason a bar is not 5,000,000 writes.
+func BenchmarkProgressTickSkipped(b *testing.B) {
+	l := CreateLogger(Config{Colors: ColorsOff}).WithWriter(discardForBench{})
+	p := l.WithProgress(b.N, ProgressOptions{Every: 10 * time.Second})
+
+	for i := 0; i < b.N; i++ {
+		p.Tick(1)
+	}
+
+	progressOut = p.done
+}
+
+// One bar line composed and written, with the bar left colourless - ColorsOff, so what is measured is
+// the composition and the write with nothing in it. write is called directly because a bar that is not
+// due does not draw, and a benchmark that ticked its way to a draw would mostly be measuring the skipping.
+func BenchmarkProgressRedrawNoColors(b *testing.B) {
+	l := CreateLogger(Config{Colors: ColorsOff}).WithWriter(discardForBench{})
+	p := l.WithProgress(1000, ProgressOptions{Width: 40})
+	p.sl.isTTY = true
+
+	for i := 0; i < b.N; i++ {
+		p.done = i % 1000
+		p.filled, p.pct = p.filledCells(), p.percent()
+
+		if err := p.write(DebugLevel, "progress", false); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	progressOut = p.done
+}
+
+// The same line with the preset's bar palette in it, because a default bar is a coloured bar now and
+// colour has a price here the way it has one everywhere else in this package: three runs of escapes and
+// their resets per line, and a bar that can only be 290 cells wide before the fixed buffer says no.
+func BenchmarkProgressRedraw(b *testing.B) {
+	l := CreateLogger(Config{Colors: ColorsOn}).WithWriter(discardForBench{})
+	p := l.WithProgress(1000, ProgressOptions{Width: 40})
+	p.sl.isTTY = true
+
+	for i := 0; i < b.N; i++ {
+		p.done = i % 1000
+		p.filled, p.pct = p.filledCells(), p.percent()
+
+		if err := p.write(DebugLevel, "progress", false); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	progressOut = p.done
+}
+
+// The result line for a bar whose counts fit in a byte: one ordinary log line, and the allocations are
+// the Progress object and its params slice. Both result benchmarks set the counts directly, so this is
+// the line alone with no redraws and no milestones in it.
+func BenchmarkProgressDone(b *testing.B) {
+	l := CreateLogger(Config{Colors: ColorsOff}).WithWriter(discardForBench{})
+
+	for i := 0; i < b.N; i++ {
+		p := l.WithProgress(4, ProgressOptions{})
+		p.done = 4
+
+		if err := p.Done("bench finished"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// The same line with counts a real job would have - 120,000 items and three seconds - because values
+// above the runtime's cached range need boxing, and a benchmark that only ever measures small numbers is
+// measuring a case that does not ship.
+func BenchmarkProgressDoneLargeCounts(b *testing.B) {
+	l := CreateLogger(Config{Colors: ColorsOff}).WithWriter(discardForBench{})
+
+	for i := 0; i < b.N; i++ {
+		p := l.WithProgress(120000, ProgressOptions{})
+		p.done = 120000
+		p.start = p.start.Add(-3 * time.Second)
+
+		if err := p.Done("bench finished"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+type discardForBench struct{}
+
+func (discardForBench) Write(p []byte) (int, error) { return len(p), nil }

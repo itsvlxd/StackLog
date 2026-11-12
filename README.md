@@ -41,6 +41,8 @@ dependency outside the standard library.
   that is not what you want
 - JSON Lines output through `Config.Format`, with colours suppressed and an exported `Entry`
 - Plain output through `Plain` — banners and ASCII art, with nothing added
+- A progress bar that redraws a terminal line through `WithProgress` — a log line with the bar at the end
+  of it, its own level, its own message, the logger's own params, and a green-on-grey bar by default
 - Write errors returned, including short writes
 
 ## Installation
@@ -125,8 +127,8 @@ if logger.Enabled(stacklog.DebugLevel) {
 }
 ```
 
-A filtered call costs under a nanosecond — 0.9 ns across ten counts of 3,000,000 calls — and
-allocates nothing. A line that is actually built costs 64.5 ns to render, before the write.
+A filtered call costs about a nanosecond — 1.0 ns across ten counts of 3,000,000 calls — and
+allocates nothing. A line that is actually built costs 63.1 ns to render, before the write.
 
 ### Key/value context
 
@@ -563,6 +565,134 @@ Block characters are three bytes each and two of them are half-cells, so the mul
 three real rows of the wordmark rather than a made-up string: `Plain` has to carry `▀`, `▄` and `█`
 without escaping, splitting or reordering them, and the assertion is that it does.
 
+### Progress
+
+`WithProgress` attaches a progress bar to a derived logger. Every line the bar writes is an ordinary
+`stacklog` line — timestamp if the logger has one, the level's label and colour, the prefix, the message,
+the key/value pairs — and the bar is what comes at the end of it. On a terminal the line replaces itself.
+In a file it is a normal terminated line, one row per update, each row carrying its own bar.
+
+```go
+logger := stacklog.CreateLogger(stacklog.Config{}).WithParams("file", "index")
+
+p := logger.WithProgress(1500, stacklog.ProgressOptions{
+	Level:   stacklog.InfoLevel,
+	Message: "rebuilding index",
+})
+
+for _, item := range items {
+	work(item)
+
+	p.Tick(1)
+}
+
+if err := p.Done("index rebuilt"); err != nil {
+	return err
+}
+```
+
+On a terminal that is one line, redrawn in place — carriage return, the line again with a longer bar in
+it, erase-to-end-of-line, and no newline written until the run ends:
+
+```text
+INFO rebuilding index file=index ███████░░░░░░░░░░░░░░░░░ 600/1500 40% 8.2s
+```
+
+![Progress](assets/progress-bar.gif)
+
+The same run written to a file. A file cannot redraw, so a bar there is drawn once per row and every
+update is its own row — the history of the run down the page, the bar lengthening as you scroll:
+
+```text
+INFO rebuilding index file=index ███░░░░░░░░░░░░░░░░░ 2/12 16% 0.0s
+INFO rebuilding index file=index ██████░░░░░░░░░░░░░░ 4/12 33% 0.1s
+INFO index rebuilt file=index ████████████████████ 12/12 100% 0.4s
+```
+
+That costs about 60 bytes a row at the demo's 20-cell bar and 120 at the default 40. It is the price of
+putting a progress bar somewhere that cannot replace a line, and the redraw budget is what stops it from
+becoming 120 bytes times a million rows. Nothing about those rows is a control sequence: no carriage
+return, no erase, nothing a log viewer has to strip.
+
+**A progress line is a log line.** That is the whole design, and it is why the bar hangs off
+`WithProgress` rather than being a separate kind of output: a bar and a log line go through the same line
+builder, so they cannot drift apart. Everything a line carries arrives the same way it does for
+`Info` or `Error`, and the tail is the only new part.
+
+It also decides what `MinLevel` means here. The bar's lines have a level — `ProgressOptions.Level`,
+`DebugLevel` by default, which is what the package already calls "information about work in flight" — and
+a filtered level means no bar, not a hidden one. `ProgressOptions.Message` is the text every bar line
+carries, defaulting to `progress`, and `Done`, `Abort` and `Finish` give the last line its own message.
+`Done` and `Abort` are `Finish` with the level chosen for you: a finished job is info, a failed one is
+error, and `Finish(WarnLevel, "index rebuilt with 3 skipped")` is the run that finished with problems in
+it — which is its own shape of line, not a compromise between those two.
+
+One asymmetry is deliberate and asserted: **a bar that has drawn lines is terminated even when its
+result line is filtered.** A level filter is not allowed to leave half a line sitting unterminated on
+someone's screen. `TestProgressTerminatesABarWhoseResultLineWasFiltered` is that rule.
+
+**The numbers appear once, and each format gets the form it can use.** A text line puts them beside the
+bar — `600/1500 40% 8.2s` — and nowhere else. A JSON line carries them as fields, one object per update:
+
+```json
+{"level":"debug","msg":"rebuilding index","params":{"pct":16,"done":2,"total":12,"ms":80,"filled":6,"width":20}}
+```
+
+There is no bar string in a JSON row. A bar is a rendering, not data, and `filled` and `width` are the
+two numbers a renderer needs — 104 bytes of parseable state instead of 120 bytes of box-drawing
+characters inside something meant for a machine. `Entry.Params` carries them, so decoding the shape is
+documented API rather than guesswork. A line that states the same number twice reads as noise, and the
+tests check that neither format does it.
+
+**The bar is styled like everything else, and it has a default look.** `Style.Progress` is a
+`ProgressStyle{Filled, Empty, Numbers}`, each an ordinary `CompStyle`, and every preset carries one. The
+package default is a green filled run (`70`) on the same `242` grey the timestamp and keys already use,
+with the counts in white. Muted is a quieter `108` on `240`. Badge puts the filled run on a dark slab —
+`236` behind `70` — because the badge idea is a block the eye can read at a glance. High contrast uses
+`82`. A caller who sets `Style.Progress` replaces the whole set, exactly as a single style component
+stands against a preset everywhere else in this README.
+
+`NoColors` and `ColorsOff` gate the bar's *colours* and nothing else: a suppressed bar still draws its
+glyphs and still writes its clearing sequence, because a bar that stops erasing the longer line before it
+leaves ghosts on the screen. Left and Right padding are honoured inside a bar line; Top and Bottom are
+not, on `Style.Progress` or on the level style — they write newlines, and a redraw needs its line to stay
+one line.
+
+**Redraws are budgeted, not counted.** A line is due when the filled cells or the whole-number percentage
+would actually look different, and never more often than `Every` (80 ms by default, about twelve frames a
+second, which is faster than a bar needs to move to look alive). A thousand ticks with a one-hour budget
+produce two writes whatever the loop looks like. The two flags mean different things and are kept
+separate on purpose: `drawn` means there is an open, unterminated bar line on the reader's screen, and
+the budget is about time. A bar writing lines into a file never opens a line, and folding those two
+concepts into one flag once meant file milestones ignored the budget entirely.
+
+**The width is fixed, and the clamp is honest about it.** 40 cells by default, clamped to 290 when a
+coloured bar is asked for, because the clamp counts the style runs as well as the cells — a coloured bar
+is a longer bar. The clearing sequence is written past the content limit into the reserved tail, so a line
+cut short still erases and still ends cleanly. Terminal width is not bytes: it is `ioctl(fd, TIOCGWINSZ)`,
+which the standard library does not offer in portable form, so it would cost `syscall` with build tags or
+`golang.org/x/term`, and this package has neither. `Width` is the escape hatch for a caller who knows
+their terminal is narrower. Whether the package ever learns the width itself is
+[#31](https://github.com/itsvlxd/StackLog/issues/31), and "the caller says" is a serious candidate answer
+rather than a placeholder for one.
+
+**`WithProgress` derives, like `WithParams` and `WithPrefix`.** The bar writes through its own derived
+logger on its own buffer, which is what makes one bar per goroutine the safe pattern, and
+`p.Logger()` hands that logger back so a run can keep being specialised — a prefix per stage, params per
+file — without the bar's lines being affected by it. Two `WithProgress` calls on one logger produce two
+bars with two buffers, never two bars on one line.
+
+Measured in the sitting that produced the benchmark table below, ten counts of 3,000,000, nothing else
+running: a `Tick` that decides not to draw costs **13.0 ns** and allocates nothing. A redrawn bar line on
+a terminal costs **166.9 ns** uncoloured and **204.6 ns** with the preset's bar colours in it — colour on
+a bar is about 38 ns a line, the same shape of tax colour costs on a log line — and neither allocates
+anything, because the numbers are formatted straight into the buffer. A bar run ending costs **707.9 ns**
+with 3,264 bytes and four allocations, which is the derived logger, its own 1,024-byte buffer, the
+`Progress` object and its params, paid once per operation rather than once per line, plus the completed
+bar the final row draws. At 120,000 items the same ending is 729.0 ns and the same allocations, because
+no numbers are boxed in text mode at all. The log-line path is unchanged by all of it — `RenderPath`
+63.1 ns and `ErrorToDiscardText` 66.2 ns in the same sweep — and that was measured rather than asserted.
+
 ### Working across goroutines
 
 A logger is cheap to derive and every derived logger owns its own 1024-byte buffer. That is what
@@ -632,15 +762,15 @@ no prefix — on the same machine as the benchmarks below, median of five runs:
 
 | writer | ns per line | lines per second | bytes per line |
 |---|---|---|---|
-| one syscall per line, straight to a file, `ColorsAuto` | 317 | 3.2M | 57.0 |
-| the same file, `ColorsOn` — colour asked for explicitly | 388 | 2.6M | 116.0 |
-| `bufio.Writer` at 256 KB, `ColorsAuto` | 99 | 10.1M | 56.6 |
-| the same buffered, `ColorsOn` | 166 | 6.0M | 115.9 |
-| the same buffered, `FormatJSON` | 122 | 8.2M | 94.9 |
-| coloured text buffered, `WithParams` called per line | 376 | 2.7M | 115.9 |
+| one syscall per line, straight to a file, `ColorsAuto` | 309 | 3.2M | 57.0 |
+| the same file, `ColorsOn` — colour asked for explicitly | 381 | 2.6M | 116.0 |
+| `bufio.Writer` at 256 KB, `ColorsAuto` | 97 | 10.3M | 56.6 |
+| the same buffered, `ColorsOn` | 155 | 6.5M | 115.9 |
+| the same buffered, `FormatJSON` | 119 | 8.4M | 94.9 |
+| coloured text buffered, `WithParams` called per line | 373 | 2.7M | 115.9 |
 
-Building the line is about 41 ns of the third row and 66 ns of the fourth. Everything after that is
-the write, and a buffered writer is the whole difference — 317 ns per call becomes 99 ns.
+Building the line is about 42 ns of the third row and 66 ns of the fourth. Everything after that is
+the write, and a buffered writer is the whole difference — 309 ns per call becomes 97 ns.
 `WithWriter` already takes one:
 
 ```go
@@ -655,7 +785,7 @@ What that sample writes to a file is the plain row above it: a `bufio.Writer` is
 
 The last row is the trap, and it is the one a caller walks into by instinct. `WithParams` returns
 a new logger, and a new logger owns a new 1024-byte buffer, so calling it on every line builds a
-buffer per line: 376 ns against 166 ns for identical output. Derive once, reuse it.
+buffer per line: 373 ns against 155 ns for identical output. Derive once, reuse it.
 
 Three consequences, each one a change to what the logger promises.
 
@@ -680,8 +810,8 @@ go test -bench . -benchmem
 ```
 
 Measured on an i9-12900KS, 24 logical processors, Go 1.27.3, on 2026-11-12. Ten counts of
-3,000,000 iterations each for the benchmark table, five runs of 500,000 lines for the end-to-end
-ones. The range column is the part worth reading: a difference inside that range is not a difference.
+3,000,000 iterations each for the benchmark rows, five runs of 500,000 lines for the end-to-end ones.
+The range column is the part worth reading: a difference inside that range is not a difference.
 
 The coloured rows state `Colors: ColorsOn` in the benchmark file. That is not decoration: since the
 colour policy landed, a logger writing to `io.Discard` is writing to a writer that is not a terminal,
@@ -691,19 +821,28 @@ machine came out 1.5× slower on every row, `slog`'s included. Nothing else was 
 
 | benchmark | median | range | what it measures |
 |---|---|---|---|
-| `RenderPath` | 64.5 ns | 60.9–70.0 | a coloured line built, never flushed |
-| `ErrorToDiscardText` | 65.5 ns | 63.9–70.0 | the same call end to end, to `io.Discard` |
-| `ErrorToDiscardTextNoColors` | 40.7 ns | 40.0–42.5 | that call with the escapes suppressed |
-| `ErrorToDiscardJSON` | 44.4 ns | 43.5–46.3 | JSON mode, two-character message |
-| `ErrorToDiscardTextLong` | 126.2 ns | 124.7–130.4 | a realistic line, coloured text |
-| `ErrorToDiscardJSONLong` | 98.9 ns | 97.7–100.0 | the same realistic line, JSON |
-| `FilteredCall` | 0.9 ns | 0.9–1.3 | a call `MinLevel` drops |
-| `SlogToDiscard` | 344.8 ns | 341.6–350.4 | `log/slog` text handler, same writer |
-| `SlogTextLong` | 541.2 ns | 532.2–570.3 | `log/slog` text handler, realistic line |
-| `SlogJSONLong` | 592.2 ns | 586.1–598.9 | `log/slog` JSON handler, realistic line |
+| `RenderPath` | 63.1 ns | 61.6–66.4 | a coloured line built, never flushed |
+| `ErrorToDiscardText` | 66.2 ns | 65.8–70.4 | the same call end to end, to `io.Discard` |
+| `ErrorToDiscardTextNoColors` | 40.0 ns | 39.4–41.3 | that call with the escapes suppressed |
+| `ErrorToDiscardJSON` | 44.5 ns | 43.8–44.9 | JSON mode, two-character message |
+| `ErrorToDiscardTextLong` | 123.9 ns | 122.7–130.6 | a realistic line, coloured text |
+| `ErrorToDiscardJSONLong` | 99.4 ns | 97.8–103.7 | the same realistic line, JSON |
+| `FilteredCall` | 1.0 ns | 0.9–1.1 | a call `MinLevel` drops |
+| `ProgressTickSkipped` | 13.0 ns | 12.9–14.2 | a `Tick` that decides not to draw |
+| `ProgressRedrawNoColors` | 166.9 ns | 165.9–176.5 | one bar line composed and written, uncoloured |
+| `ProgressRedraw` | 204.6 ns | 203.6–224.4 | the same bar line with the preset's bar colours in it |
+| `ProgressDone` | 707.9 ns | 691.3–725.4 | a bar run ending, completed bar included: 3,264 B, 4 allocs |
+| `ProgressDoneLargeCounts` | 729.0 ns | 721.4–740.0 | the same at 120,000 items: 3,264 B, 4 allocs |
+| `SlogToDiscard` | 340.2 ns | 336.2–349.2 | `log/slog` text handler, same writer |
+| `SlogTextLong` | 537.6 ns | 527.3–540.5 | `log/slog` text handler, realistic line |
+| `SlogJSONLong` | 592.7 ns | 586.2–615.3 | `log/slog` JSON handler, realistic line |
 
-Every row is `0 B/op` and `0 allocs/op`. That is the claim that travels between machines. The
-nanoseconds belong to this one.
+Every log-line row above is `0 B/op` and `0 allocs/op`, and so are the three progress rows that draw: a
+bar line formats its numbers straight into the buffer and allocates nothing. That is the claim that
+travels between machines, and the nanoseconds belong to this one. `ProgressDone` and
+`ProgressDoneLargeCounts` are the exception, and they measure a bar run ending rather than a line — 3,264
+bytes and four allocations are the derived logger, its own 1,024-byte buffer, the `Progress` object, its
+params, and the completed bar the last row draws. A bar allocates once per operation. A log line still allocates nothing.
 
 `ErrorToDiscardTextNoColors` is also what `ColorsAuto` now writes to a pipe, a file or a buffer:
 the same path, reached by the default policy instead of by a flag.
@@ -714,9 +853,9 @@ against the same discarded writer, at both message lengths:
 
 | one call, to `io.Discard` | `stacklog` | `log/slog` | faster by |
 |---|---|---|---|
-| `"hi"` with one attribute — coloured text | 65.5 ns | 344.8 ns | **5.3×** |
-| `"upstream returned 502 for user:42"` with two attributes — coloured text | 126.2 ns | 541.2 ns | **4.3×** |
-| the same line — JSON | 98.9 ns | 592.2 ns | **6.0×** |
+| `"hi"` with one attribute — coloured text | 66.2 ns | 340.2 ns | **5.1×** |
+| `"upstream returned 502 for user:42"` with two attributes — coloured text | 123.9 ns | 537.6 ns | **4.3×** |
+| the same line — JSON | 99.4 ns | 592.7 ns | **6.0×** |
 | allocations per call, JSON line | `0` | `2` (`16 B`) | — |
 
 `slog` allocates on the JSON path. `stacklog` does not allocate on either.
@@ -727,16 +866,18 @@ machine, median of five runs:
 
 | 500,000 lines to a real file | ns per line | lines per second |
 |---|---|---|
-| `stacklog` `ColorsAuto` — a file is not a terminal, so no escapes — 256 KB buffered | 99 | 10.1M |
-| `stacklog` `ColorsOn`, 256 KB buffered | 166 | 6.0M |
-| `slog` text handler, 256 KB buffered | 578 | 1.73M |
-| `stacklog` JSON, 256 KB buffered | 122 | 8.2M |
-| `slog` JSON handler, 256 KB buffered | 648 | 1.54M |
-| `stacklog` `ColorsAuto`, one syscall per line | 317 | 3.2M |
-| `slog` text, one syscall per line | 860 | 1.16M |
+| `stacklog` `ColorsAuto` — a file is not a terminal, so no escapes — 256 KB buffered | 97 | 10.3M |
+| `stacklog` `ColorsOn`, 256 KB buffered | 155 | 6.5M |
+| `slog` text handler, 256 KB buffered | 574 | 1.74M |
+| `stacklog` JSON, 256 KB buffered | 119 | 8.4M |
+| `slog` JSON handler, 256 KB buffered | 628 | 1.59M |
+| `stacklog` `ColorsAuto`, one syscall per line | 309 | 3.2M |
+| `slog` text, one syscall per line | 861 | 1.16M |
+| `stacklog` JSON, one syscall per line | 355 | 2.8M |
+| `slog` JSON, one syscall per line | 910 | 1.10M |
 
-5.8× on the default buffered line against `slog`'s text handler, 3.5× when colour is asked for
-explicitly, 5.3× on buffered JSON, 2.7× when both are doing one syscall per line. The multiplier
+5.9× on the default buffered line against `slog`'s text handler, 3.7× when colour is asked for
+explicitly, 5.3× on buffered JSON, 2.8× when both are doing one syscall per line. The multiplier
 shrinks because the write dominates end to end and both pay it. Anyone quoting a 5× speedup from a
 builder benchmark is quoting the part of the cost they control.
 
@@ -750,17 +891,19 @@ What `slog` gives up this comparison does not measure: handlers and middleware, 
 is safe to share between goroutines. `stacklog` is one logger per goroutine by design. Speed is
 one axis, and pretending it is the only one would be a worse advertisement than the table above.
 
-**What colour costs.** The same line with the escapes suppressed is 40.7 ns against 65.5 ns. Escapes
-are about 25 ns of a 65 ns line, which means 38% of building a coloured line is emitting colour —
-and end to end the split is wider, 99 ns against 166 ns, because a coloured realistic line spends
-59.3 of its 115.9 bytes on escape sequences. Any further optimisation here should start from those
+**What colour costs.** The same line with the escapes suppressed is 40.0 ns against 66.2 ns. Escapes are
+about 26 ns of a 66 ns line, which means 40% of building a coloured line is emitting colour — and end to
+end the split is wider, 97 ns against 155 ns, because a coloured realistic line spends 59.3 of its 115.9
+bytes on escape sequences. A bar line pays the same tax in its own shape: 165.5 ns with the bar left
+colourless against 204.6 ns with the preset's green-on-grey bar in it, about 38 ns a line. Any further
+optimisation here should start from those
 numbers rather than from a hunch.
 
 **Read the long-line pair, not the short one.** At a two-character message there is no run of
 ordinary text to copy in bulk, so JSON looks as cheap as plain text and the escaping never shows
 up. With the message length the package is used at — `upstream returned 502 for user:42` with
-`user=vlad` and `ms=12.4` — a JSON line is 98.9 ns against 126.2 ns for the coloured text line.
-JSON mode used to cost 28% more than a coloured text line for the same content. It now costs 22%
+`user=vlad` and `ms=12.4` — a JSON line is 99.4 ns against 123.9 ns for the coloured text line.
+JSON mode used to cost 28% more than a coloured text line for the same content. It now costs 20%
 less. The escaping was the entire difference.
 
 Two changes since v1.4.0 shipped, each measured against the same baseline in the same sitting:
@@ -771,12 +914,12 @@ Two changes since v1.4.0 shipped, each measured against the same baseline in the
 | runs of ordinary text copied in bulk by the JSON escape writer | 182.5 ns | 109.8 ns — JSON, long line |
 
 The `after` column is the paired run that justified each change, taken against the commit before
-it. The table above is the current sweep of the same code. 109.8 and 98.9 are the same build
-measured in two sittings, and the gap is the machine being warmer and busier — which is why the
-ranges are printed rather than a single number.
+it. The table above is the current sweep of the same code. 109.8 and 99.4 are the same build measured in
+successive sittings, and the gap is the machine being warmer and busier — which is why the ranges are
+printed rather than a single number.
 
-`RenderPath` measures 64.5 ns in this sweep against 61.7 ns in the last one and 64.6 ns before that:
-the same code, and the spread sits inside the range column.
+`RenderPath` measures 63.1 ns in this sweep, and 61.6, 62.7, 64.5 and 64.6 in the four sittings before it:
+the same code, and every one of those numbers sits inside a range column printed here.
 
 What is still on the table is compiling each style's escapes once per logger instead of per line.
 That is the remaining prize, and it collides with `Config.Style.Level[ErrorLevel]` being settable

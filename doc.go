@@ -81,12 +81,56 @@
 // a banner therefore contains one line that is not an object, which is stated here because the
 // alternative is a parser failing on it in the dark.
 //
+// A progress bar is a log line with a bar at the end of it. WithProgress derives a logger and returns a
+// bar whose lines go through the same builder every other line in this package uses - timestamp if the
+// logger has one, the level's label and colour, the prefix, the message, the key/value pairs - with the
+// bar as the tail. On a terminal the line replaces itself: carriage return, the line again with a longer
+// bar in it, erase-to-end-of-line, and no newline until the run ends. In a file the same composition is a
+// normal terminated line, one row per update, and every row carries its own bar - a file cannot replace a
+// line, so the file becomes the history of the run and the bar lengthens down the page. That costs about
+// 120 bytes a row at the default width, which is the price of the shape rather than an accident, and the
+// redraw budget is what keeps it from becoming 120 bytes times a million rows.
+//
+// Because the lines are log lines, they have a level (ProgressOptions.Level, DebugLevel by default) and a
+// message (ProgressOptions.Message, "progress"), and MinLevel applies to them: a filtered level means no
+// bar, not a hidden one. The asymmetry is deliberate - a bar that has drawn lines is terminated even when
+// its result line is filtered, because a level filter does not get to leave half a line on someone's
+// screen. Done, Abort and Finish are the endings, and Finish is for the run where info and error are both
+// the wrong level.
+//
+// The numbers appear once, in the form each format can use. A text line prints them beside the bar -
+// "600/1500 40% 8.2s" - and nowhere else. A JSON line prints one object per update carrying pct, done,
+// total, ms, filled and width: a bar is a rendering rather than data, so the two numbers that draw it
+// travel instead of 120 bytes of box-drawing characters inside something meant for a machine.
+//
+// Redraws are budgeted rather than counted: a line is due when the filled cells or the whole-number
+// percentage would look different, and never more often than ProgressOptions.Every, 80 ms by default.
+// Bars go only to a writer the package proved was a terminal - the same verdict Config.Colors is built
+// on, computed once per writer - so ColorsOn permits colour in a file and never permits control bytes
+// there. JSON mode draws no bar anywhere.
+//
+// Style.Progress carries the bar's colours in three runs - filled, empty and numbers - each an ordinary
+// CompStyle, and every preset supplies one: the package default is a green bar on the same 242 grey the
+// timestamp and the keys already use. NoColors and ColorsOff gate the colours and not the clearing
+// sequence, because a bar that stops erasing the longer line before it leaves ghosts. Left and Right
+// padding are honoured inside a bar line; Top and Bottom are not, because they write newlines and a
+// redraw needs its line to stay one line.
+//
+// The bar is 40 cells by default and clamped to what the content area can carry - 290 with a coloured
+// bar, because a coloured bar is a longer bar - and its clearing sequence is written into the reserved
+// tail so a cut line still erases cleanly. Terminal width is an ioctl rather than bytes, so the package
+// does not know it and says so: ProgressOptions.Width is the caller's lever, and #31 is the card that
+// decides whether that ever changes. A tick that is not due costs 13.0 ns and allocates nothing, a
+// redrawn bar line costs 166.9 ns uncoloured and 204.6 ns with the preset's bar colours, and neither one
+// allocates. Ending a run costs 707.9 ns and four allocations, which is the derived logger, its own
+// 1,024-byte buffer, the Progress object and its params, paid once per operation rather than per line.
+//
 // The writer is the caller's choice, and it is where the cost of a log line lives.
 // One line is built in a fixed buffer and handed to a single Write call, so the
-// formatting is the smaller half: about 62 ns to build a coloured line against roughly
-// 450 ns to write it to a file one syscall at a time, or about 190 ns once a buffered
-// writer is supplied to WithWriter. About 26 ns of those 62 is emitting colour - the
-// same line with NoColors set builds in 40 ns - which is why both colour writers assemble
+// formatting is the smaller half: about 65 ns to build a coloured line against roughly
+// 390 ns to write it to a file one syscall at a time, or about 166 ns once a buffered
+// writer is supplied to WithWriter. About 25 ns of those 65 is emitting colour - the
+// same line with the escapes suppressed builds in 40.7 ns - which is why both colour writers assemble
 // their escape sequences in a stack array, and why the JSON escape writer copies runs of
 // ordinary text in one move rather than deciding one character at a time. A call MinLevel
 // drops costs under a nanosecond and allocates nothing, in either format. A caller who wants

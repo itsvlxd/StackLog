@@ -60,6 +60,22 @@ func (sb *StackBuffer) markTruncated() *StackBuffer {
 	return sb
 }
 
+// writeTail copies bytes past the content limit into the reserved tail, the way the marker
+// does. It exists for a frame's clearing sequence: content writes stop at usable(), so a bar
+// long enough to be cut would otherwise lose the erase-in-line bytes, and a bar that loses them
+// leaves the remnants of a longer frame on the reader's screen. The tail is 4 bytes in text mode
+// and 20 in JSON mode, and the sequence is 3, so the copy is always inside the buffer.
+//
+// A frame does not also carry the "..." marker. Both cannot fit in a 4-byte tail, and between a
+// progress bar that says it was cut and one that stops erasing itself, the second is the worse
+// failure. The clamp on bar width is what keeps this case from arriving at all.
+func (sb *StackBuffer) writeTail(s string) *StackBuffer {
+	copy(sb.Buffer[sb.BufLen:], s)
+	sb.BufLen += len(s)
+
+	return sb
+}
+
 // CreateBuffer initialises a StackBuffer and returns its pointer. The value
 // stays on the caller's stack only while the pointer never leaves the frame that
 // created it — storing it in a struct that escapes moves it to the heap.

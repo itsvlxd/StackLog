@@ -48,6 +48,7 @@ var sections = []struct {
 	{"write-errors", writeErrors},
 	{"json", jsonOutput},
 	{"logo", logo},
+	{"progress", progress},
 	{"goroutines", goroutines},
 	{"fatal", fatal},
 }
@@ -317,6 +318,46 @@ func logo() {
 
 	if err := logger.Plain(logoTagline); err != nil {
 		fmt.Fprintln(os.Stderr, "could not print the tagline:", err)
+	}
+}
+
+// progress draws a bar that redraws itself on one line, then writes the ordinary log record the run
+// leaves behind. The two halves are different kinds of output: the frames are bytes a terminal
+// interprets and the record is a line with a level, params and a timestamp like every other line in
+// the file.
+//
+// The bar is 20 cells here rather than the default 40 because a capture is sized from the longest line
+// the program writes, and a 40-cell bar makes an image wider than the README column. The default is
+// unchanged; this is the demo choosing a width, which is exactly what ProgressOptions.Width is for.
+//
+// The bar's colours come from the preset - green filled cells on a grey remainder - and the params are
+// the logger's own, which is the whole point of building a bar out of log lines: the bar matches the rest
+// of the output because it is part of the rest of the output.
+func progress() {
+	// A short param on purpose: a capture is sized from the longest line the section writes, and a
+	// progress line carries a level, a message, its params and a bar, which is already a long line.
+	logger := stacklog.CreateLogger(stacklog.Config{}).WithParams("file", "index")
+
+	p := logger.WithProgress(12, stacklog.ProgressOptions{
+		Width:   20,
+		Every:   40 * time.Millisecond,
+		Level:   stacklog.InfoLevel,
+		Message: "rebuilding index",
+	})
+
+	// Six steps of two rather than twelve of one: the bar moves in visible jumps, and a canvas is
+	// sized from the lines this section writes when it is piped rather than drawn, so a shorter
+	// milestone count is a shorter image.
+	for i := 0; i < 6; i++ {
+		time.Sleep(80 * time.Millisecond)
+
+		p.Tick(2)
+	}
+
+	if err := p.Done("index rebuilt"); err != nil {
+		fmt.Fprintln(os.Stderr, "write failed:", err)
+
+		return
 	}
 }
 

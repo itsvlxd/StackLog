@@ -25,9 +25,13 @@ type StackLog struct {
 	prefix string
 	wr     io.Writer
 	// emitColor is the colour question answered once, when the writer became known. hasColor reads
-	// it rather than consulting Config.Colors per line, because answering that question properly costs
+	// it instead of consulting Config.Colors per line, because answering that question properly costs
 	// a Stat syscall and a line is not the place to pay for it.
 	emitColor bool
+	// isTTY is the same answer with the overrides removed: is this writer a terminal, whatever the
+	// caller asked for. Colours can be forced into a file with ColorsOn; control sequences cannot, and
+	// Progress reads this field rather than calling Stat a second time.
+	isTTY bool
 }
 
 // LogLevel selects the prefix and the colours used for one line.
@@ -138,6 +142,11 @@ type Style struct {
 	Level       [MaxLevel]CompStyle
 	Params      [MaxLevel]ParamsStyle
 	LevelPrefix [MaxLevel]string
+	// Progress is the colour set for the bar a progress line ends with: the cells already filled, the
+	// cells still empty, and the counts, percentage and elapsed text. Every preset carries one, so the
+	// package default is a green bar on a grey track, and Style.Progress is how you change it - the same
+	// CompStyle builder, the same colour forms, the same NoColors and ColorsOff gates.
+	Progress ProgressStyle
 
 	// NoColors suppresses every escape sequence. It wins over every component, so a
 	// caller who sets a colour and sets this gets no colour. That is the precedence
@@ -155,6 +164,23 @@ type ParamsStyle struct {
 	Param CompStyle
 	Equal CompStyle
 	Value CompStyle
+}
+
+// ProgressStyle is the colour set for the bar a progress line ends with: three runs, because a bar has
+// three parts that want to look different.
+//
+// Each is an ordinary CompStyle, so foreground, background and hex colours work the way they do anywhere
+// else in this package, and NoColors, ColorsOff, and a writer that is not a terminal suppress every one
+// of them. Left and Right padding are honoured inside a bar. Top and Bottom are not: they write newlines,
+// and a progress line is one line that gets redrawn - padding that adds lines would move the bar off the
+// line it lives on.
+//
+// Every preset sets one. The package default is a green filled run on a grey remainder, with the numbers
+// in white, because a bar with no colour in it is a bar that looks like a formatting accident.
+type ProgressStyle struct {
+	Filled  CompStyle
+	Empty   CompStyle
+	Numbers CompStyle
 }
 
 // Predefined styles
@@ -182,7 +208,8 @@ func CreateLogger(config Config) *StackLog {
 	applyJSONFormat(&config, sb)
 
 	sl := &StackLog{Config: config, Buffer: sb, wr: os.Stdout}
-	sl.emitColor = resolveColor(sl.Config, sl.wr)
+	sl.isTTY = isTerminal(sl.wr)
+	sl.emitColor = resolveColor(sl.Config, sl.isTTY)
 
 	return sl
 }
@@ -233,6 +260,23 @@ func (sl *StackLog) WithPrefix(prefix string) *StackLog {
 	return &newLogger
 }
 
+// WithProgress returns a progress bar bound to a derived logger: a bar whose lines carry this
+// logger's prefix, timestamp, level styling, key/value styling and colour policy, on its own buffer.
+// The original logger is not changed, which is what makes one bar per goroutine the safe pattern.
+//
+// The name belongs to the derivation family this package already uses - WithParams, WithPrefix,
+// WithWriter - and the return type is the bar rather than a logger, because the bar is the stateful
+// thing: it knows how far the work got, when it last drew, and what its last line looked like. A logger
+// carrying that would be a logger with a timer in it.
+//
+// Every line the bar writes is an ordinary log line with the bar at the end of the message. See
+// Progress.
+func (sl *StackLog) WithProgress(total int, opts ProgressOptions) *Progress {
+	derived := sl.derive()
+
+	return newProgress(&derived, total, opts)
+}
+
 // WithWriter returns a new logger that writes to w. The original is not changed.
 // If w is nil, os.Stdout is used.
 //
@@ -247,8 +291,9 @@ func (sl *StackLog) WithWriter(w io.Writer) *StackLog {
 	newLogger.wr = w
 	// The colour answer belongs to the writer, so changing the writer changes the answer. A derived
 	// logger that does not change it keeps whatever its parent settled on, which is the correct
-	// result: same writer, same verdict.
-	newLogger.emitColor = resolveColor(newLogger.Config, w)
+	// result: same writer, same verdict. One isTerminal call answers both questions.
+	newLogger.isTTY = isTerminal(w)
+	newLogger.emitColor = resolveColor(newLogger.Config, newLogger.isTTY)
 
 	return &newLogger
 }
@@ -428,7 +473,28 @@ func (sl *StackLog) addBottomPadding() {
 	}
 }
 
+// print writes an ordinary line: the composition, the marker if the line was cut, the terminator,
+// and any bottom padding the line accumulated.
 func (sl *StackLog) print(level LogLevel, message string) error {
+	return sl.printLine(level, message, nil, false, true)
+}
+
+// lineTail is the hook a progress bar uses to hang itself off the end of a line. It is a function
+// rather than a field on the logger because only one kind of line has a tail, and the ordinary path
+// should not pay for something it does not use beyond one nil check.
+type lineTail func(buf *StackBuffer)
+
+// printLine is the whole line builder, shared by an ordinary line and a progress line so the two
+// cannot drift apart. Everything a line carries - timestamp, level label, prefix, message, params -
+// arrives here once, and a bar is appended at the end rather than living on a line of its own.
+//
+// inPlace says this line is meant to replace the one above it on the reader's screen: it opens with a
+// carriage return, and it does not carry the truncation marker. The tail owns its own clearing
+// sequence in that case, and the sequence is written into the reserved tail, because a bar that loses
+// it stops erasing the longer line before it and leaves ghosts.
+//
+// terminate says whether the line ends. A redrawn frame does not; the last line of a run does.
+func (sl *StackLog) printLine(level LogLevel, message string, tail lineTail, inPlace, terminate bool) error {
 	// One comparison, before anything is written into the buffer. A filtered call
 	// costs that comparison and stops; it does not build a line, flush it, or
 	// allocate.
@@ -439,8 +505,22 @@ func (sl *StackLog) print(level LogLevel, message string) error {
 	// One comparison on the format, and the two builders never share a path. The text
 	// builder is untouched by JSON mode, which is the point: an additive field should not
 	// put a branch inside every step of the line it does not change.
+	//
+	// A JSON line has no bar in it, in either direction. There is nowhere to redraw one and a
+	// percentage string is not data. The progress numbers still arrive, through params, which is where
+	// numbers belong in this format.
 	if sl.Config.Format == FormatJSON {
 		return sl.printJSON(level, message)
+	}
+
+	buf := sl.Buffer
+
+	if inPlace {
+		buf.AppendByte('\r')
+		// Top padding is written when the buffer believes it is at the start of a line, and a redraw is
+		// at a line start in the terminal's eyes. Clearing the flag here is what keeps a level style's
+		// Top padding from pushing the bar onto a line above itself.
+		buf.lineStart = false
 	}
 
 	if sl.Config.Timestamp {
@@ -454,17 +534,30 @@ func (sl *StackLog) print(level LogLevel, message string) error {
 	}
 
 	// Adds the raw byte message inside the buffer
-	sl.Buffer.WriteString(message)
+	buf.WriteString(message)
 
 	if len(sl.params) > 0 {
 		sl.addParams(level)
 	}
 
+	if tail != nil {
+		buf.AppendByte(' ')
+		tail(buf)
+	}
+
+	if inPlace {
+		if terminate {
+			buf.WriteNL()
+		}
+
+		return sl.printBuffer()
+	}
+
 	// The marker goes before the terminator. Both land in the reserved tail, so
 	// neither can be dropped by a full buffer.
-	sl.Buffer.markTruncated()
+	buf.markTruncated()
 
-	sl.Buffer.WriteNL()
+	buf.WriteNL()
 
 	sl.addBottomPadding()
 

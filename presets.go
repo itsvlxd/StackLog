@@ -38,6 +38,13 @@ func loadPreset(style *Style) {
 		style.Prefix = base.Prefix
 	}
 
+	// The bar gets a palette from the preset like every other component, so a progress line is not
+	// colourless until someone asks it to be. Setting Progress at all replaces the whole set: there is
+	// no mixing a preset's filled run with a caller's remainder.
+	if style.Progress == (ProgressStyle{}) {
+		style.Progress = base.Progress
+	}
+
 	for i := LogLevel(0); i < MaxLevel; i++ {
 		if style.Level[i] == (CompStyle{}) {
 			style.Level[i] = base.Level[i]
@@ -71,6 +78,12 @@ func defaultPreset() Style {
 		}
 	}
 
+	s.Progress = ProgressStyle{
+		Filled:  NewStyle().Foreground(70),
+		Empty:   grayFGStyle,
+		Numbers: whiteFGStyle,
+	}
+
 	return s
 }
 
@@ -94,6 +107,14 @@ func mutedPreset() Style {
 			Equal: NewStyle().Foreground(240),
 			Value: NewStyle().Foreground(250),
 		}
+	}
+
+	// A muted green on a dark grey track, because a loud bar in a preset built for long-running
+	// services and for files is the wrong kind of loud.
+	s.Progress = ProgressStyle{
+		Filled:  NewStyle().Foreground(108),
+		Empty:   NewStyle().Foreground(240),
+		Numbers: NewStyle().Foreground(250),
 	}
 
 	return s
@@ -124,6 +145,14 @@ func badgePreset() Style {
 		}
 	}
 
+	// Green glyphs on a dark slab, which is the badge idea carried onto the bar: the filled run is a
+	// block the eye can read at a glance.
+	s.Progress = ProgressStyle{
+		Filled:  NewStyle().Background(236).Foreground(70),
+		Empty:   NewStyle().Foreground(240),
+		Numbers: whiteFGStyle,
+	}
+
 	return s
 }
 
@@ -151,6 +180,13 @@ func highContrastPreset() Style {
 			Equal: NewStyle().Foreground(245),
 			Value: NewStyle().Foreground(255),
 		}
+	}
+
+	// 82 is a bright green inside the 17-and-above rule this preset holds itself to.
+	s.Progress = ProgressStyle{
+		Filled:  NewStyle().Foreground(82),
+		Empty:   NewStyle().Foreground(244),
+		Numbers: NewStyle().Foreground(255),
 	}
 
 	return s
