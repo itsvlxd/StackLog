@@ -18,7 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/itsvlxd/stacklog"
 )
@@ -270,34 +269,55 @@ func jsonOutput() {
 	structured.Error("upstream 502")
 }
 
-// logo prints the wordmark through Plain: no level label, no prefix, no timestamp, no colour,
-// no padding. The frame is composed from rune counts rather than typed by hand because a
-// box-drawing character is three bytes in a Go string and len() would quietly make the right
-// edge crooked.
-const (
-	logoName    = "s t a c k l o g"
-	logoTagline = "fixed buffer · one line per call"
-)
+// logo prints the wordmark through Plain: no level label, no prefix, no timestamp, no colour, no
+// padding.
+//
+// The art is neither hand-typed nor generated at run time. It was produced by rendering "stacklog"
+// in DejaVu Sans Bold at 420 px, cropping to the ink, adding a margin of at least half a cell on
+// every side, then area-resampling the result into cells whose height is twice their width - the
+// shape a character has in a terminal - and writing ▄, ▀ or █ according to whether the lower half, the
+// upper half, or both of a cell are covered. Three bugs sat between the first attempt and this
+// version: a crop tight to the ink put the g descender and the right side bearing exactly on a cell
+// boundary; the row count was rounded down, which dropped the descender row outright; and a trim
+// pass deleted every fully-empty column, which closed the gutters and merged the word into one
+// shape. Only the outer margins are trimmed, because interior whitespace is what makes it read as
+// eight letters rather than as a blob.
+//
+// The finished art is a checked-in constant rather than something regenerated at run time. The bytes
+// are the logo, they belong in the source, and a capture that records them records what the package
+// writes instead of a picture of it.
+// The wordmark, one entry per row. As a single payload it is 1323 bytes against a 1020-byte
+// content area, so the section prints it row by row: the fixed buffer does not grow, and a logo that
+// arrives clipped is worse than a logo that costs ten writes.
+var logoRows = []string{
+	`           ▄▄▄                           ███        ▄███`,
+	`           ███                           ███        ████`,
+	`▄███████ ████████  ████████▄   ▄███████  ███  ▄███▀ ████   ▄██████▄    ▄████▄███`,
+	`███▄  ▀▀  ▀███▀▀▀  ▀▀ ▄▄████  ████▀  ▀▀  ███▄███▀   ████  ███▀  ▀███  ███▀  ▀███`,
+	`▀███████▄  ███     █████████  ████       ██████▄    ████  ███    ███  ███    ███`,
+	`▄▄   ████  ███▄▄▄ ████  ▄███  ████▄  ▄▄  ███▀▀███▄  ████  ███▄▄ ▄███  ███▄▄▄████`,
+	`███████▀   ▀█████  ▀████▀███   ▀██████▀  ███  ▀████ ▀███   ▀██████▀    ▀████▀███`,
+	`                                                                       ▄▄▄▄▄████`,
+	`                                                                       ▀█████▀▀`,
+}
+
+// The line under the wordmark.
+const logoTagline = `fixed buffer · no growth · one line per log call`
 
 func logo() {
 	logger := stacklog.CreateLogger(stacklog.Config{})
 
-	width := utf8.RuneCountInString(logoTagline) + 4
+	for _, row := range logoRows {
+		if err := logger.Plain(row); err != nil {
+			fmt.Fprintln(os.Stderr, "could not print the wordmark:", err)
 
-	line := func(text string) string {
-		pad := width - utf8.RuneCountInString(text) - 2
-
-		return "│  " + text + strings.Repeat(" ", pad) + "│"
+			return
+		}
 	}
 
-	edge := func(left, right string) string {
-		return left + strings.Repeat("─", width) + right
+	if err := logger.Plain(logoTagline); err != nil {
+		fmt.Fprintln(os.Stderr, "could not print the tagline:", err)
 	}
-
-	logger.Plain(edge("┌", "┐"))
-	logger.Plain(line(logoName))
-	logger.Plain(line(logoTagline))
-	logger.Plain(edge("└", "┘"))
 }
 
 // goroutines is the concurrency model on one screen: a base logger, one derived logger per

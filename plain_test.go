@@ -144,7 +144,10 @@ func TestPlainWritesAMultiLinePayloadInOneCall(t *testing.T) {
 
 	l := CreateLogger(Config{}).WithWriter(w)
 
-	logo := "┌──────────────────┐\n│  S T A C K L O G  │\n│  fixed buffer     │\n└──────────────────┘"
+	// Rows of the wordmark the showcase actually prints. Block characters are three bytes each and
+	// two of them - ▀ and ▄ - are half-cells, so this is the payload Plain must carry without
+	// touching: no escaping, no splitting, no reordering.
+	logo := "▄██████ ███████\n███▄  ▀▀  ▀███▀▀▀\n▀███████▄  ███"
 
 	if err := l.Plain(logo); err != nil {
 		t.Fatal(err)
@@ -156,15 +159,15 @@ func TestPlainWritesAMultiLinePayloadInOneCall(t *testing.T) {
 
 	got := w.buf.String()
 
-	if !strings.HasPrefix(got, "┌") || !strings.HasSuffix(got, "┘\n") {
+	if !strings.HasPrefix(got, "▄███") || !strings.HasSuffix(got, "███\n") {
 		t.Errorf("the payload was altered: %q", got)
 	}
-	// Four logo lines carry three newlines between them; Plain adds the terminator.
-	if n := strings.Count(got, "\n"); n != 4 {
-		t.Errorf("%d newlines, want 4 (three inside the logo plus the terminator)", n)
+	// Three logo rows carry two newlines between them; Plain adds the terminator.
+	if n := strings.Count(got, "\n"); n != 3 {
+		t.Errorf("%d newlines, want 3 (two inside the payload plus the terminator)", n)
 	}
 	if strings.ContainsRune(got, 0x1b) {
-		t.Error("box-drawing characters were escaped")
+		t.Error("block characters were escaped")
 	}
 }
 

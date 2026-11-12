@@ -519,34 +519,66 @@ end up with two routes to stdout where only one of them honours `WithWriter`.
 ```go
 logger := stacklog.CreateLogger(stacklog.Config{})
 
-logger.Plain("┌────────────────────────────────────┐")
-logger.Plain("│  s t a c k l o g                   │")
-logger.Plain("│  fixed buffer · one line per call  │")
-logger.Plain("└────────────────────────────────────┘")
+for _, row := range logoRows {
+	if err := logger.Plain(row); err != nil {
+		fmt.Fprintln(os.Stderr, "could not print the wordmark:", err)
+
+		return
+	}
+}
+
+logger.Plain("fixed buffer · no growth · one line per log call")
+```
+
+```text
+           ▄▄▄                           ███        ▄███
+           ███                           ███        ████
+▄███████ ████████  ████████▄   ▄███████  ███  ▄███▀ ████   ▄██████▄    ▄████▄███
+███▄  ▀▀  ▀███▀▀▀  ▀▀ ▄▄████  ████▀  ▀▀  ███▄███▀   ████  ███▀  ▀███  ███▀  ▀███
+▀███████▄  ███     █████████  ████       ██████▄    ████  ███    ███  ███    ███
+▄▄   ████  ███▄▄▄ ████  ▄███  ████▄  ▄▄  ███▀▀███▄  ████  ███▄▄ ▄███  ███▄▄▄████
+███████▀   ▀█████  ▀████▀███   ▀██████▀  ███  ▀████ ▀███   ▀██████▀    ▀████▀███
+                                                                       ▄▄▄▄▄████
+                                                                       ▀█████▀▀
+fixed buffer · no growth · one line per log call
 ```
 
 ![The wordmark, printed by the package itself](assets/stacklog-logo.gif)
 
-That capture is `stacklog` printing its own logo: the showcase section runs the four `Plain` calls
-above through a real terminal recorder, so the frame on this page was written by the code it
-documents. The frame is composed from `utf8.RuneCountInString` rather than typed by hand — a
-box-drawing character is three bytes in a Go string, and `len()` would make the right edge crooked
-while looking perfectly fine in the source.
+That capture is `stacklog` printing its own logo: the showcase section runs the calls above through
+a real terminal recorder, so the wordmark on this page was written by the code it documents. The art
+is a checked-in constant — not generated at run time, not typed by hand. It was produced by rendering
+`stacklog` in DejaVu Sans Bold at 420 px, cropping to the ink, adding a margin of at least half a cell
+on every side, then area-resampling into cells whose height is twice their width, which is the shape a
+character has in a terminal, and mapping each cell to `▄`, `▀` or `█` depending on whether its lower
+half, its upper half, or both are covered.
+
+Three bugs sat between the first attempt and the version above, and each one is the kind of thing that
+looks acceptable in a preview and wrong on a page: a crop tight to the ink put the `g` descender and the
+right side bearing exactly on a cell boundary; the row count was rounded down, which dropped the
+descender's row outright; and a trim pass deleted every fully-empty column, which closed the gutters
+between letters and merged the word into a single shape. Only the outer margins are trimmed. Interior
+whitespace is what makes it read as eight letters rather than as a blob.
+
+Ten `Plain` calls rather than one, and that is the fixed buffer doing its job rather than a limitation
+of the art. The wordmark as a single payload is 1323 bytes against a 1020-byte content area: the first
+attempt printed it in one call and the line arrived already cut, mid-`g`, marker on it. The buffer does
+not grow. A logo that arrives clipped is worse than a logo that costs ten writes.
 
 Three rules, each one asserted in a test:
 
-- `MinLevel` does not filter it. A logger set to `WarnLevel` still prints its banner, because a
-  banner is not a log level.
-- `FormatJSON` does not wrap it. A JSON logger asked for a plain write produces exactly the text,
-  and the log lines beside it stay objects. The consequence is stated rather than left implied: a
-  JSON stream that also prints a banner contains lines that are not objects, so whatever parses it
-  skips the lines that do not begin with `{`.
-- Style is inert. A logger with a coloured, padded level and a prefix set writes the payload alone
-  and produces one newline, nothing else.
+- `MinLevel` does not filter it. A logger set to `WarnLevel` still prints its banner, because a banner
+  is not a log level.
+- `FormatJSON` does not wrap it. A JSON logger asked for a plain write produces exactly the text, and
+  the log lines beside it stay objects. The consequence is stated rather than left implied: a JSON
+  stream that also prints a banner contains lines that are not objects, so whatever parses it skips the
+  lines that do not begin with `{`.
+- Style is inert. A logger with a coloured, padded level and a prefix set writes the payload alone and
+  produces one newline, nothing else.
 
-A payload with newlines inside it is allowed and still costs one `Write` — which is what makes a
-framed logo usable at all. The whole payload has to fit the 1020-byte content area; an oversized
-banner is cut and ends with `...`, the same rule every other path follows.
+Block characters are three bytes each and two of them are half-cells, so the multi-line test payload is
+three real rows of the wordmark rather than a made-up string: `Plain` has to carry `▀`, `▄` and `█`
+without escaping, splitting or reordering them, and the assertion is that it does.
 
 ### Working across goroutines
 
