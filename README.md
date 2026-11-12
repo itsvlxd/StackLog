@@ -530,19 +530,6 @@ for _, row := range logoRows {
 logger.Plain("fixed buffer · no growth · one line per log call")
 ```
 
-```text
-           ▄▄▄                           ███        ▄███
-           ███                           ███        ████
-▄███████ ████████  ████████▄   ▄███████  ███  ▄███▀ ████   ▄██████▄    ▄████▄███
-███▄  ▀▀  ▀███▀▀▀  ▀▀ ▄▄████  ████▀  ▀▀  ███▄███▀   ████  ███▀  ▀███  ███▀  ▀███
-▀███████▄  ███     █████████  ████       ██████▄    ████  ███    ███  ███    ███
-▄▄   ████  ███▄▄▄ ████  ▄███  ████▄  ▄▄  ███▀▀███▄  ████  ███▄▄ ▄███  ███▄▄▄████
-███████▀   ▀█████  ▀████▀███   ▀██████▀  ███  ▀████ ▀███   ▀██████▀    ▀████▀███
-                                                                       ▄▄▄▄▄████
-                                                                       ▀█████▀▀
-fixed buffer · no growth · one line per log call
-```
-
 ![The wordmark, printed by the package itself](assets/stacklog-logo.gif)
 
 That capture is `stacklog` printing its own logo: the showcase section runs the calls above through
@@ -553,12 +540,12 @@ on every side, then area-resampling into cells whose height is twice their width
 character has in a terminal, and mapping each cell to `▄`, `▀` or `█` depending on whether its lower
 half, its upper half, or both are covered.
 
-Three bugs sat between the first attempt and the version above, and each one is the kind of thing that
-looks acceptable in a preview and wrong on a page: a crop tight to the ink put the `g` descender and the
-right side bearing exactly on a cell boundary; the row count was rounded down, which dropped the
-descender's row outright; and a trim pass deleted every fully-empty column, which closed the gutters
-between letters and merged the word into a single shape. Only the outer margins are trimmed. Interior
-whitespace is what makes it read as eight letters rather than as a blob.
+Three bugs sat between the first attempt and the version in the capture above, and each one is the
+kind of thing that looks acceptable in a preview and wrong on a page: a crop tight to the ink put the
+`g` descender and the right side bearing exactly on a cell boundary; the row count was rounded down,
+which dropped the descender's row outright; and a trim pass deleted every fully-empty column, which
+closed the gutters between letters and merged the word into a single shape. Only the outer margins are
+trimmed. Interior whitespace is what makes it read as eight letters rather than as a blob.
 
 Ten `Plain` calls rather than one, and that is the fixed buffer doing its job rather than a limitation
 of the art. The wordmark as a single payload is 1323 bytes against a 1020-byte content area: the first
