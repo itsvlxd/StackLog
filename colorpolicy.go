@@ -28,6 +28,12 @@ const (
 //  2. ColorsOff never writes an escape, whatever the writer is.
 //  3. ColorsOn always writes one, whatever the writer is - a file, a pipe, /dev/null.
 //  4. ColorsAuto, the empty string and any unrecognised name fall through to the writer.
+//
+// What this gates is what the package emits. It does not gate what a caller already wrote: escape
+// bytes inside a message string, or inside a Plain payload, reach the writer whatever Colors says,
+// because the package treats a message as bytes to copy and has no model of what the text means.
+// NoColors and ColorsOff are not a sanitizer, and a message built from anything outside the program
+// can contain a control sequence.
 func resolveColor(config Config, w io.Writer) bool {
 	if config.Style.NoColors {
 		return false

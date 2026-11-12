@@ -297,3 +297,44 @@ func TestIsTerminalOnWriterKinds(t *testing.T) {
 		}
 	}
 }
+
+// The gate is about what the package emits, not about what a caller already wrote. A message that
+// carries its own control sequence keeps it with ColorsOff set, with NoColors set, and through
+// Plain, because a logger copies message bytes and has no model of what the text means. Asserted
+// so nobody reads suppression as sanitisation.
+func TestSuppressionGatesWhatThePackageEmitsNotWhatTheCallerWrites(t *testing.T) {
+	cases := []struct {
+		name   string
+		config Config
+	}{
+		{"ColorsOff", Config{Colors: ColorsOff}},
+		{"NoColors", Config{Style: Style{NoColors: true}}},
+		{"ColorsAuto into a buffer", Config{}},
+	}
+
+	const injected = "\x1b[2Jthe caller wrote this, not the logger"
+
+	for _, c := range cases {
+		var out bytes.Buffer
+
+		l := CreateLogger(c.config).WithWriter(&out)
+
+		if err := l.Error(injected); err != nil {
+			t.Fatal(err)
+		}
+
+		if !containsEscape(out.Bytes()) {
+			t.Errorf("%s: the caller's escape bytes were stripped, which is not what suppression means", c.name)
+		}
+
+		out.Reset()
+
+		if err := l.Plain(injected); err != nil {
+			t.Fatal(err)
+		}
+
+		if !containsEscape(out.Bytes()) {
+			t.Errorf("%s: Plain lost caller-supplied escape bytes", c.name)
+		}
+	}
+}

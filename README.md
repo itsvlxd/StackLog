@@ -248,6 +248,14 @@ resolved when the writer is known — in `CreateLogger` and in `WithWriter` — 
 changing `Config.Colors` after that does not change it. Making it respond would mean a
 `Stat` syscall on the per-line path, which is the one place this package refuses to pay.
 
+One limit on that gate, stated because it is the kind of thing a caller assumes the other
+way: suppression applies to escape sequences the *package* emits. A message that already
+contains them keeps them, with `ColorsOff` set and with `NoColors` set, because a logger
+copies message bytes rather than interpreting them. `NoColors` is not a sanitizer, and a
+message assembled from anything outside the program — a request body, an upstream error
+string, a filename — can carry a control sequence into your terminal. `TestSuppressionGatesWhatThePackageEmitsNotWhatTheCallerWrites`
+pins this as documented behaviour rather than luck.
+
 ### Presets
 
 A preset is a complete style: colours, padding, and the level labels. Pick one by
