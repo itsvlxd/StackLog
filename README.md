@@ -37,6 +37,8 @@ dependency outside the standard library.
 - Padding around a line, including coloured blocks
 - Optional prefix and timestamp
 - Configurable writer — file, buffer, `io.Discard`
+- Colour only where the writer is a terminal, with `Config.Colors` (`ColorsOn`, `ColorsOff`) when
+  that is not what you want
 - JSON Lines output through `Config.Format`, with colours suppressed and an exported `Entry`
 - Plain output through `Plain` — banners and ASCII art, with nothing added
 - Write errors returned, including short writes
@@ -230,6 +232,34 @@ styled.WithParams("user", "vlad").Error("upstream returned 502 for user:42")
 > black, not a sentinel — the "not set" state is carried separately, so a style
 > that sets nothing emits no escape sequence.
 
+**Which writers get colour.** `Config.Colors` takes `ColorsAuto`, `ColorsOn` or
+`ColorsOff`, and the empty string is `ColorsAuto`:
+
+```go
+stacklog.CreateLogger(stacklog.Config{})                        // colour, if stdout is a terminal
+stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOn}) // colour, whatever the writer is
+stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOff}) // never, whatever the writer is
+```
+
+`ColorsAuto` is the behaviour the package defaults to now, and it is a change: a
+pipe, a redirected file, a `bytes.Buffer` and `io.Discard` receive no escape sequences
+at all, which is the case `Style.NoColors` used to exist to cover. An unrecognised
+name resolves to `ColorsAuto`, the same rule an unrecognised preset name follows.
+
+Two limits are stated rather than left to be discovered:
+
+- The test is "standard output or standard error, attached to a character device",
+  not "a character device". `/dev/null` is a character device, so the descriptor half
+  is what stops it being called a terminal, and `TestDevNullIsNotATerminal` is that guard.
+- Nothing sees through a wrapper. A `bufio.Writer` around a terminal is not an
+  `*os.File`, so it reads as not a terminal. Wrapping a writer takes the decision out
+  of the package and hands it to `ColorsOn` and `ColorsOff`, which is what they are for.
+
+`Style.NoColors` outranks all three and can only ever turn colour off. The answer is
+resolved when the writer is known — in `CreateLogger` and in `WithWriter` — and
+changing `Config.Colors` after that does not change it. Making it respond would mean a
+`Stat` syscall on the per-line path, which is the one place this package refuses to pay.
+
 ### Presets
 
 A preset is a complete style: colours, padding, and the level labels. Pick one by
@@ -378,21 +408,29 @@ func main() {
 	if err := logger.Error("service started, listening on 0.0.0.0:8080"); err != nil {
 		os.Stderr.WriteString("write failed: " + err.Error() + "\n")
 	}
+
+	coloured := stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOn}).WithWriter(f)
+
+	if err := coloured.Error("same call, colour asked for"); err != nil {
+		os.Stderr.WriteString("write failed: " + err.Error() + "\n")
+	}
 }
 ```
 
 ![Writing to a file](assets/wrote-line-readme-log.gif)
 
-Contents of `readme-example.log`, quoted by the showcase so the escape codes are
-visible rather than interpreted:
+Contents of `readme-example.log`, quoted line by line by the showcase so what lands in
+the file is visible rather than interpreted:
 
 ```text
-readme-example.log: "\x1b[31mERRO\x1b[0m service started, listening on 0.0.0.0:8080\n"
+readme-example.log: "ERRO service started, listening on 0.0.0.0:8080\n"
+readme-example.log: "\x1b[31mERRO\x1b[0m same call, colour asked for\n"
 ```
 
-> There is no terminal detection. Colours are written unless `Style.NoColors` is
-> set, so a log file contains ANSI codes by default. For plain output, set
-> `NoColors`.
+> The first line is what `ColorsAuto` writes to a file: nothing coloured, because a
+> file is not a terminal. The second is the same call with `ColorsOn`. There is no
+> terminal detection beyond that rule, and `TestColorsAutoLeavesARegularFileUncoloured`
+> asserts the plain half so it cannot quietly regress.
 
 ### Handling write errors
 
@@ -441,10 +479,10 @@ user=vlad ms=12.4`. Adding `Timestamp: true` puts a `"time"` field first, in RFC
 meant to be parsed and `"2026-11-11 15:46:52"` carries no offset.
 
 Colours are off because escape codes inside a JSON string are noise to a parser, not because
-you asked. `Style.NoColors` is what does it, and `Config.Style.NoColors` reads back as `true`
-on a JSON logger. Padding is inert, and so is `Style.LevelPrefix`: in JSON the level is a field
-with five fixed values, so a label like `DEBU` or `!!` would either duplicate it or replace it
-with something a parser cannot match on.
+you asked. `Style.NoColors` is what does it, and `Config.Style.NoColors` reads back as `true` on
+a JSON logger, alongside `Config.Colors` reading back as `ColorsOff`. Padding is inert, and so is
+`Style.LevelPrefix`: in JSON the level is a field with five fixed values, so a label like `DEBU` or
+`!!` would either duplicate it or replace it with something a parser cannot match on.
 
 The shape is exported rather than implied, which is the point of the mode:
 
@@ -573,20 +611,22 @@ which is why the flush happens here instead of being left to your `defer`.
 
 ### Throughput and buffering
 
-A log line has two costs and only one of them is yours to reduce. End to end, 500,000 lines of
-the shape this package is used at — a level label, a prefix, two key/value pairs, 137 bytes
-written — on the same machine as the benchmarks below:
+A log line has two costs and only one of them is yours to reduce. End to end, 500,000 identical
+lines of the shape this package is used at — a level label and two key/value pairs, no timestamp and
+no prefix — on the same machine as the benchmarks below, median of five runs:
 
-| writer | ns per line | lines per second |
-|---|---|---|
-| one syscall per line, straight to a file | 453 | 2.2M |
-| `bufio.Writer` at 256 KB, coloured text | 193 | 5.2M |
-| the same buffered, `NoColors` set | 114 | 8.8M |
-| the same buffered, `FormatJSON` | 148 | 6.8M |
-| coloured text buffered, `WithParams` called per line | 564 | 1.8M |
+| writer | ns per line | lines per second | bytes per line |
+|---|---|---|---|
+| one syscall per line, straight to a file, `ColorsAuto` | 317 | 3.2M | 57.0 |
+| the same file, `ColorsOn` — colour asked for explicitly | 388 | 2.6M | 116.0 |
+| `bufio.Writer` at 256 KB, `ColorsAuto` | 99 | 10.1M | 56.6 |
+| the same buffered, `ColorsOn` | 166 | 6.0M | 115.9 |
+| the same buffered, `FormatJSON` | 122 | 8.2M | 94.9 |
+| coloured text buffered, `WithParams` called per line | 376 | 2.7M | 115.9 |
 
-Building the line is about 66 ns of that. Everything after it is the write, and a buffered
-writer is the whole difference — 453 ns per call becomes 193 ns. `WithWriter` already takes one:
+Building the line is about 41 ns of the third row and 66 ns of the fourth. Everything after that is
+the write, and a buffered writer is the whole difference — 317 ns per call becomes 99 ns.
+`WithWriter` already takes one:
 
 ```go
 bw := bufio.NewWriterSize(f, 256*1024)
@@ -595,9 +635,12 @@ defer bw.Flush()
 logger := stacklog.CreateLogger(stacklog.Config{}).WithWriter(bw)
 ```
 
+What that sample writes to a file is the plain row above it: a `bufio.Writer` is not a terminal, so
+`ColorsAuto` declines to paint, and `ColorsOn` is how you ask for the coloured row instead.
+
 The last row is the trap, and it is the one a caller walks into by instinct. `WithParams` returns
 a new logger, and a new logger owns a new 1024-byte buffer, so calling it on every line builds a
-buffer per line: 564 ns against 193 ns for identical output. Derive once, reuse it.
+buffer per line: 376 ns against 166 ns for identical output. Derive once, reuse it.
 
 Three consequences, each one a change to what the logger promises.
 
@@ -621,25 +664,34 @@ buffer contradicts the fixed per-line buffer the package exists to provide.
 go test -bench . -benchmem
 ```
 
-Measured on an i9-12900KS, 24 logical processors, Go 1.27.3, on 2026-11-11. Ten counts of
-3,000,000 iterations each. The range column is the part worth reading: a difference inside that
-range is not a difference.
+Measured on an i9-12900KS, 24 logical processors, Go 1.27.3, on 2026-11-12. Ten counts of
+3,000,000 iterations each for the benchmark table, five runs of 500,000 lines for the end-to-end
+ones. The range column is the part worth reading: a difference inside that range is not a difference.
+
+The coloured rows state `Colors: ColorsOn` in the benchmark file. That is not decoration: since the
+colour policy landed, a logger writing to `io.Discard` is writing to a writer that is not a terminal,
+so a benchmark that meant "the coloured line" and said nothing was measuring the uncoloured one and
+reporting it as coloured. A sweep taken while the capture pipeline was writing GIFs on the same
+machine came out 1.5× slower on every row, `slog`'s included. Nothing else was running for these.
 
 | benchmark | median | range | what it measures |
 |---|---|---|---|
-| `RenderPath` | 61.7 ns | 59.8–66.0 | a coloured line built, never flushed |
-| `ErrorToDiscardText` | 66.1 ns | 65.3–73.6 | the same call end to end, to `io.Discard` |
-| `ErrorToDiscardTextNoColors` | 40.0 ns | 39.6–41.3 | that call with the escapes suppressed |
-| `ErrorToDiscardJSON` | 43.9 ns | 42.5–47.5 | JSON mode, two-character message |
-| `ErrorToDiscardTextLong` | 121.9 ns | 119.5–124.8 | a realistic line, coloured text |
-| `ErrorToDiscardJSONLong` | 103.8 ns | 102.5–105.9 | the same realistic line, JSON |
-| `FilteredCall` | 0.91 ns | 0.81–1.75 | a call `MinLevel` drops |
-| `SlogToDiscard` | 349.8 ns | 342.9–357.5 | `log/slog` text handler, same writer |
-| `SlogTextLong` | 544.0 ns | 535.8–558.0 | `log/slog` text handler, realistic line |
-| `SlogJSONLong` | 598.8 ns | 592.6–616.1 | `log/slog` JSON handler, realistic line |
+| `RenderPath` | 64.5 ns | 60.9–70.0 | a coloured line built, never flushed |
+| `ErrorToDiscardText` | 65.5 ns | 63.9–70.0 | the same call end to end, to `io.Discard` |
+| `ErrorToDiscardTextNoColors` | 40.7 ns | 40.0–42.5 | that call with the escapes suppressed |
+| `ErrorToDiscardJSON` | 44.4 ns | 43.5–46.3 | JSON mode, two-character message |
+| `ErrorToDiscardTextLong` | 126.2 ns | 124.7–130.4 | a realistic line, coloured text |
+| `ErrorToDiscardJSONLong` | 98.9 ns | 97.7–100.0 | the same realistic line, JSON |
+| `FilteredCall` | 0.9 ns | 0.9–1.3 | a call `MinLevel` drops |
+| `SlogToDiscard` | 344.8 ns | 341.6–350.4 | `log/slog` text handler, same writer |
+| `SlogTextLong` | 541.2 ns | 532.2–570.3 | `log/slog` text handler, realistic line |
+| `SlogJSONLong` | 592.2 ns | 586.1–598.9 | `log/slog` JSON handler, realistic line |
 
 Every row is `0 B/op` and `0 allocs/op`. That is the claim that travels between machines. The
 nanoseconds belong to this one.
+
+`ErrorToDiscardTextNoColors` is also what `ColorsAuto` now writes to a pipe, a file or a buffer:
+the same path, reached by the default policy instead of by a flag.
 
 **Against `log/slog`.** `RenderPath` against `SlogToDiscard` was always the wrong shape — one
 builds a line and never flushes, the other is a complete call. The head to head is the same call
@@ -647,48 +699,53 @@ against the same discarded writer, at both message lengths:
 
 | one call, to `io.Discard` | `stacklog` | `log/slog` | faster by |
 |---|---|---|---|
-| `"hi"` with one attribute — text | 66.6 ns | 349.8 ns | **5.3×** |
-| `"upstream returned 502 for user:42"` with two attributes — text | 121.9 ns | 544.0 ns | **4.5×** |
-| the same line — JSON | 103.8 ns | 598.8 ns | **5.8×** |
+| `"hi"` with one attribute — coloured text | 65.5 ns | 344.8 ns | **5.3×** |
+| `"upstream returned 502 for user:42"` with two attributes — coloured text | 126.2 ns | 541.2 ns | **4.3×** |
+| the same line — JSON | 98.9 ns | 592.2 ns | **6.0×** |
 | allocations per call, JSON line | `0` | `2` (`16 B`) | — |
 
 `slog` allocates on the JSON path. `stacklog` does not allocate on either.
 
 End to end matters more than a builder benchmark, and the gap narrows there — which is the
 honest part of this comparison. 500,000 identical lines written to a real file on the same
-machine:
+machine, median of five runs:
 
-| 500,000 lines to a file | ns per line | lines per second |
+| 500,000 lines to a real file | ns per line | lines per second |
 |---|---|---|
-| `stacklog` text, 256 KB buffered | 192 | 5.2M |
-| `slog` text handler, 256 KB buffered | 571 | 1.75M |
-| `stacklog` JSON, 256 KB buffered | 141 | 7.1M |
-| `slog` JSON handler, 256 KB buffered | 633 | 1.58M |
-| `stacklog` text, one syscall per line | 446 | 2.2M |
-| `slog` text, one syscall per line | 867 | 1.15M |
+| `stacklog` `ColorsAuto` — a file is not a terminal, so no escapes — 256 KB buffered | 99 | 10.1M |
+| `stacklog` `ColorsOn`, 256 KB buffered | 166 | 6.0M |
+| `slog` text handler, 256 KB buffered | 578 | 1.73M |
+| `stacklog` JSON, 256 KB buffered | 122 | 8.2M |
+| `slog` JSON handler, 256 KB buffered | 648 | 1.54M |
+| `stacklog` `ColorsAuto`, one syscall per line | 317 | 3.2M |
+| `slog` text, one syscall per line | 860 | 1.16M |
 
-3.0× on buffered text, 4.5× on buffered JSON, 1.9× when both are doing one syscall per line.
-The multiplier shrinks because the write dominates end to end and both pay it. Anyone quoting a
-5× speedup from a builder benchmark is quoting the part of the cost they control.
+5.8× on the default buffered line against `slog`'s text handler, 3.5× when colour is asked for
+explicitly, 5.3× on buffered JSON, 2.7× when both are doing one syscall per line. The multiplier
+shrinks because the write dominates end to end and both pay it. Anyone quoting a 5× speedup from a
+builder benchmark is quoting the part of the cost they control.
 
-One number runs the other way, and it belongs here: the coloured text line is **137 bytes**
-against `slog`'s 105. Escapes are 40% of the build time and 30% of the file. `NoColors` or
-`FormatJSON` is the smaller line — `stacklog` JSON is 111 bytes against `slog` JSON at 128.
+One number runs the other way, and it belongs here: the coloured text line is **115.9 bytes**
+against `slog`'s 104.9 — 11 bytes more, 10%. Under the colour policy that is no longer the default:
+the same call to the same file with `ColorsAuto` writes **56.6 bytes**, just over half of what
+`slog` writes. `stacklog` JSON is 94.9 bytes against `slog` JSON at 128.5.
 
 What `slog` gives up this comparison does not measure: handlers and middleware, `WithGroup`,
 `LogValue` so a type decides how it renders, source attribution, a level set, and a logger that
 is safe to share between goroutines. `stacklog` is one logger per goroutine by design. Speed is
 one axis, and pretending it is the only one would be a worse advertisement than the table above.
 
-**What colour costs.** The same line with `NoColors` set is 40.0 ns against 66.1 ns. Escapes are
-about 26 ns of a 66 ns line, which means 40% of building a coloured line is emitting colour. Any
-further optimisation here should start from that number rather than from a hunch.
+**What colour costs.** The same line with the escapes suppressed is 40.7 ns against 65.5 ns. Escapes
+are about 25 ns of a 65 ns line, which means 38% of building a coloured line is emitting colour —
+and end to end the split is wider, 99 ns against 166 ns, because a coloured realistic line spends
+59.3 of its 115.9 bytes on escape sequences. Any further optimisation here should start from those
+numbers rather than from a hunch.
 
 **Read the long-line pair, not the short one.** At a two-character message there is no run of
 ordinary text to copy in bulk, so JSON looks as cheap as plain text and the escaping never shows
 up. With the message length the package is used at — `upstream returned 502 for user:42` with
-`user=vlad` and `ms=12.4` — a JSON line is 103.8 ns against 121.9 ns for the coloured text line.
-JSON mode used to cost 28% more than a coloured text line for the same content. It now costs 15%
+`user=vlad` and `ms=12.4` — a JSON line is 98.9 ns against 126.2 ns for the coloured text line.
+JSON mode used to cost 28% more than a coloured text line for the same content. It now costs 22%
 less. The escaping was the entire difference.
 
 Two changes since v1.4.0 shipped, each measured against the same baseline in the same sitting:
@@ -699,12 +756,12 @@ Two changes since v1.4.0 shipped, each measured against the same baseline in the
 | runs of ordinary text copied in bulk by the JSON escape writer | 182.5 ns | 109.8 ns — JSON, long line |
 
 The `after` column is the paired run that justified each change, taken against the commit before
-it. The table above is the current sweep of the same code. 109.8 and 103.8 are the same build
-measured twice; the difference is the machine being warmer, and it is inside the range column,
-which is why the ranges are printed.
+it. The table above is the current sweep of the same code. 109.8 and 98.9 are the same build
+measured in two sittings, and the gap is the machine being warmer and busier — which is why the
+ranges are printed rather than a single number.
 
-`RenderPath` measures 61.7 ns today against 64.6 ns when this section last said anything about
-it: fewer escape bytes per component, same colours, same order.
+`RenderPath` measures 64.5 ns in this sweep against 61.7 ns in the last one and 64.6 ns before that:
+the same code, and the spread sits inside the range column.
 
 What is still on the table is compiling each style's escapes once per logger instead of per line.
 That is the remaining prize, and it collides with `Config.Style.Level[ErrorLevel]` being settable

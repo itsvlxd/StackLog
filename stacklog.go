@@ -24,6 +24,10 @@ type StackLog struct {
 	params []any
 	prefix string
 	wr     io.Writer
+	// emitColor is the colour question answered once, when the writer became known. hasColor reads
+	// it rather than consulting Config.Colors per line, because answering that question properly costs
+	// a Stat syscall and a line is not the place to pay for it.
+	emitColor bool
 }
 
 // LogLevel selects the prefix and the colours used for one line.
@@ -62,6 +66,7 @@ var (
 // MinLevel above FatalLevel silences everything including Fatal, which is a decision
 // rather than an accident, and it is the one way to lose the line that explains a
 // crash.
+//
 // Format selects what one call writes: FormatText, the coloured line, or FormatJSON,
 // one JSON object per call terminated by a newline. The zero value is the empty string,
 // which is FormatText, so a Config that says nothing about format writes what it wrote
@@ -76,12 +81,23 @@ var (
 //
 // Content in a JSON line stops at 1004 bytes against 1020 in text mode. The wider tail is
 // the price of a line a parser can always close.
+//
+// Colors decides whether escape sequences are written at all: ColorsAuto, ColorsOn or ColorsOff.
+// The zero value is the empty string, which is ColorsAuto - colour only where the writer is standard
+// output or standard error attached to a terminal. ColorsOn writes colour into a pipe, a file or
+// /dev/null alike; ColorsOff never writes one. An unrecognised name resolves to ColorsAuto, the way
+// an unrecognised preset name resolves to the default preset.
+//
+// Style.NoColors outranks all three and can only ever turn colour off. Colors is answered when the
+// writer is known - in CreateLogger and in WithWriter - and changing Config.Colors afterwards does
+// not change the answer, which is asserted in a test rather than left to inference.
 type Config struct {
 	Style      Style
 	Timestamp  bool
 	TimeFormat string
 	MinLevel   LogLevel
 	Format     string
+	Colors     string
 }
 
 // Style holds the colours for each component of a line. Set a style with
@@ -165,7 +181,10 @@ func CreateLogger(config Config) *StackLog {
 	loadPreset(&config.Style)
 	applyJSONFormat(&config, sb)
 
-	return &StackLog{Config: config, Buffer: sb, wr: os.Stdout}
+	sl := &StackLog{Config: config, Buffer: sb, wr: os.Stdout}
+	sl.emitColor = resolveColor(sl.Config, sl.wr)
+
+	return sl
 }
 
 // derive copies sl into a new logger with its own buffer.
@@ -226,6 +245,10 @@ func (sl *StackLog) WithWriter(w io.Writer) *StackLog {
 	newLogger := sl.derive()
 
 	newLogger.wr = w
+	// The colour answer belongs to the writer, so changing the writer changes the answer. A derived
+	// logger that does not change it keeps whatever its parent settled on, which is the correct
+	// result: same writer, same verdict.
+	newLogger.emitColor = resolveColor(newLogger.Config, w)
 
 	return &newLogger
 }

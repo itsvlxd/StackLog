@@ -13,7 +13,10 @@ var benchOut []byte
 // is hardcoded: a benchmark that flushes to stdout measures the terminal or the
 // pipe, not the logger. That is the practical reason for the io.Writer field.
 func BenchmarkRenderPath(b *testing.B) {
-	l := CreateLogger(Config{})
+	// ColorsOn because this benchmark measures the coloured render path. Under ColorsAuto a logger
+	// writing to a plain buffer or to io.Discard writes no escapes at all, which would make this
+	// benchmark measure the uncoloured line and report it as the coloured one.
+	l := CreateLogger(Config{Colors: ColorsOn})
 	l.params = []any{"k", 1}
 
 	for i := 0; i < b.N; i++ {
@@ -40,8 +43,11 @@ func BenchmarkSlogToDiscard(b *testing.B) {
 // The same call in both formats, to io.Discard, so what is being measured is the builder
 // rather than the terminal. Escaping is the extra work JSON mode takes on, and a caller
 // choosing a format should be able to see what it costs.
+//
+// ColorsOn on the text pair: io.Discard is not a terminal, so the default policy would suppress
+// the escapes these benchmarks exist to price.
 func BenchmarkErrorToDiscardText(b *testing.B) {
-	l := CreateLogger(Config{}).WithWriter(io.Discard).WithParams("k", 1)
+	l := CreateLogger(Config{Colors: ColorsOn}).WithWriter(io.Discard).WithParams("k", 1)
 
 	for i := 0; i < b.N; i++ {
 		l.Error("hi")
@@ -75,7 +81,7 @@ func BenchmarkErrorToDiscardTextNoColors(b *testing.B) {
 // escaping never shows up. With the message length the package is actually used at, JSON costs
 // what escaping costs - which is the number the fixed-buffer escape writer has to stay sharp on.
 func BenchmarkErrorToDiscardTextLong(b *testing.B) {
-	l := CreateLogger(Config{}).WithWriter(io.Discard).WithParams("user", "vlad", "ms", 12.4)
+	l := CreateLogger(Config{Colors: ColorsOn}).WithWriter(io.Discard).WithParams("user", "vlad", "ms", 12.4)
 
 	for i := 0; i < b.N; i++ {
 		l.Error("upstream returned 502 for user:42")

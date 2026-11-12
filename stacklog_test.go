@@ -11,7 +11,7 @@ import (
 // practical reason for the io.Writer field.
 
 func TestRenderLine(t *testing.T) {
-	l := CreateLogger(Config{})
+	l := CreateLogger(Config{Colors: ColorsOn})
 
 	l.Buffer.Reset()
 	l.addLevelPrefix(0)

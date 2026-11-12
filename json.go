@@ -71,6 +71,11 @@ func applyJSONFormat(config *Config, sb *StackBuffer) {
 		return
 	}
 
+	// Expressed in both vocabularies on purpose. ColorsOff is where the new policy puts this
+	// decision; NoColors is also set because the README and TestJSONModeSuppressesColoursAndPadding
+	// both promise a JSON logger reads back with NoColors true, and a promise a caller can check
+	// should not be quietly replaced.
+	config.Colors = ColorsOff
 	config.Style.NoColors = true
 	sb.reserve = jsonTailReserve
 }

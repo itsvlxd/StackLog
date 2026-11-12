@@ -134,8 +134,11 @@ func parseColorVal(val any, color *Color, rgb *ColorRGB, set *bool) {
 // NoColors suppresses, and a style can be non-zero from padding alone while
 // writing no colour at all. addColorStyle writes on this answer and addPostStyle
 // resets on it, so the rule has one home.
+// hasColor is the single gate both halves of a component go through. It reads the answer this logger
+// settled when its writer was chosen - see resolveColor and colorpolicy.go - rather than consulting
+// Config.Colors per line, and NoColors still outranks everything above it.
 func (sl *StackLog) hasColor(style CompStyle) bool {
-	return !sl.Config.Style.NoColors && (style.fgSet || style.bgSet)
+	return sl.emitColor && (style.fgSet || style.bgSet)
 }
 
 // addColorStyle writes the opening escape sequences for a style into the buffer.

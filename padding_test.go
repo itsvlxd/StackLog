@@ -12,7 +12,7 @@ import (
 //   Left/Right — anywhere.
 
 func TestBottomFlushedAtEndOfLine(t *testing.T) {
-	l := CreateLogger(Config{})
+	l := CreateLogger(Config{Colors: ColorsOn})
 	l.Config.Style.Level[ErrorLevel].p = Padding{Bottom: 2}
 
 	l.Buffer.Reset()

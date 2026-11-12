@@ -192,8 +192,9 @@ func timestamp() {
 	logger.Warn("retry 3 of 5 for user:42")
 }
 
-// file writes through WithWriter, then reads the result back and quotes it, so the
-// escape codes that land in a log file are visible rather than implied.
+// file writes through WithWriter, then reads the result back and quotes it: the same
+// shape of call twice, once under the default colour policy and once with colour asked
+// for explicitly, so what a log file actually receives is visible rather than implied.
 func file() {
 	const path = "readme-example.log"
 
@@ -216,6 +217,16 @@ func file() {
 		return
 	}
 
+	// Colour in a file is a decision rather than a property of the writer, and ColorsOn is where
+	// that decision is stated. Both lines land in the same file, one with escapes and one without.
+	coloured := stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOn}).WithWriter(f)
+
+	if err := coloured.Error("same call, colour asked for"); err != nil {
+		fmt.Fprintln(os.Stderr, "write failed:", err)
+
+		return
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "read failed:", err)
@@ -223,7 +234,16 @@ func file() {
 		return
 	}
 
-	fmt.Println("readme-example.log:", strconv.Quote(string(data)))
+	// Quoted line by line rather than as one blob: the whole point is that a reader can see the
+	// escape bytes, and a single quoted run of both lines makes a capture wide enough to render
+	// small on a package page.
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" {
+			continue
+		}
+
+		fmt.Println("readme-example.log:", strconv.Quote(line+"\n"))
+	}
 }
 
 // writeErrors shows that a short write is an error, not a partial success.

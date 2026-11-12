@@ -26,6 +26,19 @@
 // sets NoColors gets no colour. That is the precedence, and it is asserted in a
 // test so it cannot change silently.
 //
+// Colour is also a decision about the writer, taken once when the writer becomes
+// known. Config.Colors takes ColorsAuto, ColorsOn or ColorsOff, and the empty string
+// is ColorsAuto: escape sequences are written only when the writer is standard output
+// or standard error attached to a character device, which is what keeps a pipe and a
+// log file free of codes nobody asked for. ColorsOn writes colour into a file anyway,
+// ColorsOff never writes any, and an unrecognised name resolves to ColorsAuto the way
+// an unrecognised preset name resolves to the default preset. NoColors outranks all
+// three and can only ever turn colour off. The rule is "standard output or standard
+// error, on a character device" rather than "on a character device", because /dev/null
+// is a character device and would otherwise be called a terminal. A bufio.Writer around
+// a terminal is not an *os.File, so it reads as not a terminal: wrapping a writer takes
+// the decision out of the package and hands it to the caller.
+//
 // A logger is cheap to derive. WithParams, WithPrefix and WithWriter return new
 // loggers and never modify the original, and each derived logger owns its own
 // buffer, so one base logger can be shared and specialised per call site.
@@ -50,7 +63,8 @@
 // terminated, and it is why the fixed buffer has two content areas: 1020 bytes for a text line
 // against 1004 for a JSON one. A JSON line is only worth reading if the structure that opens it
 // is always closed, so the wider tail is reserved rather than hoped for. Colours are suppressed
-// through NoColors rather than beside it, padding and Style.LevelPrefix are inert, and the level
+// through NoColors rather than beside it, Config.Colors reads back as ColorsOff for the same
+// reason, padding and Style.LevelPrefix are inert, and the level
 // is a field with a fixed set of values. Entry is exported, so the shape of a line is part of the
 // API rather than something a caller reverse-engineers from an example.
 //

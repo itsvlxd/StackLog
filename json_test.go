@@ -388,7 +388,7 @@ func TestFormatUnknownOrEmptyWritesText(t *testing.T) {
 	for _, format := range cases {
 		var out bytes.Buffer
 
-		l := CreateLogger(Config{Format: format}).WithWriter(&out)
+		l := CreateLogger(Config{Format: format, Colors: ColorsOn}).WithWriter(&out)
 
 		if err := l.Error("still a text line"); err != nil {
 			t.Fatal(err)
@@ -611,7 +611,7 @@ func TestJSONModeRespectsMinLevel(t *testing.T) {
 func TestTextModeIsUnchangedByJSONMode(t *testing.T) {
 	var out bytes.Buffer
 
-	l := CreateLogger(Config{Timestamp: false}).WithWriter(&out)
+	l := CreateLogger(Config{Timestamp: false, Colors: ColorsOn}).WithWriter(&out)
 
 	if err := l.Error("a text line, unchanged"); err != nil {
 		t.Fatal(err)

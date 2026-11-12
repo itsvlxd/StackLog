@@ -99,7 +99,7 @@ func TestSingleLabelOverrideWinsAgainstPreset(t *testing.T) {
 // The logger prefix is styled through Style.Prefix. Before this it was hardcoded
 // to grayFGStyle, so a preset could not reach it.
 func TestLoggerPrefixComesFromThePreset(t *testing.T) {
-	l := CreateLogger(Config{Style: Style{Preset: PresetHighContrast}})
+	l := CreateLogger(Config{Style: Style{Preset: PresetHighContrast}, Colors: ColorsOn})
 
 	if l.Config.Style.Prefix != highContrastPreset().Prefix {
 		t.Error("the prefix was not taken from the preset")

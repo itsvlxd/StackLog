@@ -39,7 +39,7 @@ func TestShortWriteIsAnError(t *testing.T) {
 func TestSuccessfulWriteReturnsNil(t *testing.T) {
 	var buf bytes.Buffer
 
-	l := CreateLogger(Config{})
+	l := CreateLogger(Config{Colors: ColorsOn})
 	l.wr = &buf
 
 	if err := l.Error("hi"); err != nil {
