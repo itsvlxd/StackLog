@@ -1,3 +1,9 @@
+## [1.6.0](https://github.com/itsvlxd/StackLog/compare/v1.5.0...v1.6.0) (2026-11-12)
+
+### Features
+
+* **config:** a colour policy for writers that are not terminals ([0ae3810](https://github.com/itsvlxd/StackLog/commit/0ae381039df35f27b56ae0925bd754745742e4f1))
+
 ## [1.5.0](https://github.com/itsvlxd/StackLog/compare/v1.4.1...v1.5.0) (2026-11-11)
 
 ### Features
