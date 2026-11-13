@@ -1,3 +1,9 @@
+## [1.7.0](https://github.com/itsvlxd/StackLog/compare/v1.6.0...v1.7.0) (2026-11-13)
+
+### Features
+
+* **progress:** a bar that hangs off the end of a log line ([8df149e](https://github.com/itsvlxd/StackLog/commit/8df149eae2acf862b646abbe08d32180553d3268)), closes [#31](https://github.com/itsvlxd/StackLog/issues/31)
+
 ## [1.6.0](https://github.com/itsvlxd/StackLog/compare/v1.5.0...v1.6.0) (2026-11-12)
 
 ### Features
