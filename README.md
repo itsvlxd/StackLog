@@ -18,26 +18,6 @@ growth, no allocation on the per-line path.
 Values are formatted straight into the buffer instead of being converted to strings first. No reflection,
 no field marshalling, no dependency outside the standard library.
 
-## Contents
-
-**Start here** — [Install](#install) · [Quick start](#quick-start)
-
-**One log line** — [Levels and filtering](#levels-and-filtering) · [Key/value pairs](#keyvalue-pairs) ·
-[Prefix](#prefix) · [Timestamp](#timestamp) · [Fatal](#fatal)
-
-**How it looks** — [Colours and styles](#colours-and-styles) · [Which writers get colour](#which-writers-get-colour) ·
-[Presets](#presets) · [Padding](#padding)
-
-**Other output** — [JSON output](#json-output) · [Plain output](#plain-output) · [Progress bar](#progress-bar)
-
-**Where it goes** — [Writing to a file](#writing-to-a-file) · [Write errors](#write-errors) ·
-[Goroutines](#goroutines) · [Buffering and throughput](#buffering-and-throughput)
-
-**Numbers, limits, provenance** — [Benchmarks](#benchmarks) · [The limits, stated up front](#the-limits-stated-up-front) ·
-[How these captures are made](#how-these-captures-are-made) · [Read further](#read-further)
-
----
-
 ## Install
 
 `go get`, one line, standard library only.
