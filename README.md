@@ -14,46 +14,43 @@ growth, no allocation on the per-line path.
 
 </div>
 
-`stacklog` writes one line per call into a fixed, pre-allocated buffer and flushes
-it in a single write. Values are formatted directly into the buffer instead of
-being converted to strings first.
+`stacklog` writes one line per call into a fixed, pre-allocated buffer and flushes it in a single write.
+Values are formatted straight into the buffer instead of being converted to strings first. No reflection,
+no field marshalling, no dependency outside the standard library.
 
-The API is deliberately small: a logger, a config, key/value pairs, a prefix,
-colours, and padding. There is no reflection, no field marshalling, and no
-dependency outside the standard library.
+## Contents
 
-## Features
+**Start here** — [Install](#install) · [Quick start](#quick-start)
 
-- Fixed 1024-byte buffer, no growth, no reallocation
-- A line longer than the content area is cut and marked with `...`, and it keeps its
-  terminator so two log calls never merge
-- Zero allocations on the per-line path
-- Leveled logging: debug, info, warn, error, fatal
-- Level filtering through `Config.MinLevel`, applied before the line is built
-- Key/value pairs written as `key=value`
-- Per-level colours and per-pair styles
-- Named style presets, with a single component override standing against the preset
-- Colour index, 256-colour, truecolour hex, and background colours
-- Padding around a line, including coloured blocks
-- Optional prefix and timestamp
-- Configurable writer — file, buffer, `io.Discard`
-- Colour only where the writer is a terminal, with `Config.Colors` (`ColorsOn`, `ColorsOff`) when
-  that is not what you want
-- JSON Lines output through `Config.Format`, with colours suppressed and an exported `Entry`
-- Plain output through `Plain` — banners and ASCII art, with nothing added
-- A progress bar that redraws a terminal line through `WithProgress` — a log line with the bar at the end
-  of it, its own level, its own message, the logger's own params, and a green-on-grey bar by default
-- Write errors returned, including short writes
+**One log line** — [Levels and filtering](#levels-and-filtering) · [Key/value pairs](#keyvalue-pairs) ·
+[Prefix](#prefix) · [Timestamp](#timestamp) · [Fatal](#fatal)
 
-## Installation
+**How it looks** — [Colours and styles](#colours-and-styles) · [Which writers get colour](#which-writers-get-colour) ·
+[Presets](#presets) · [Padding](#padding)
+
+**Other output** — [JSON output](#json-output) · [Plain output](#plain-output) · [Progress bar](#progress-bar)
+
+**Where it goes** — [Writing to a file](#writing-to-a-file) · [Write errors](#write-errors) ·
+[Goroutines](#goroutines) · [Buffering and throughput](#buffering-and-throughput)
+
+**Numbers, limits, provenance** — [Benchmarks](#benchmarks) · [The limits, stated up front](#the-limits-stated-up-front) ·
+[How these captures are made](#how-these-captures-are-made) · [Read further](#read-further)
+
+---
+
+## Install
+
+`go get`, one line, standard library only.
 
 ```bash
 go get github.com/itsvlxd/stacklog
 ```
 
-## Getting started
+Requires Go 1.27 or newer.
 
-### Simple logging example
+## Quick start
+
+A logger from a config, one call per line, `os.Stdout` unless you say otherwise.
 
 ```go
 package main
@@ -69,33 +66,23 @@ func main() {
 
 ![Simple logging example](assets/info-service-started.gif)
 
-> By default the logger writes to `os.Stdout`.
+Every image in this README is a terminal capture of the program running —
+[how they are made](#how-these-captures-are-made).
 
-> Every image in this README is a terminal capture of the program running, recorded rather than
-> drawn. How they are made, and what a GIF does to a truecolour value, is at the end.
+## Levels and filtering
 
-### Leveled logging
+Five levels, ascending, and a filter that drops everything below a point before a line is built.
 
 ```go
-logger := stacklog.CreateLogger(stacklog.Config{})
-
 logger.Debug("cache miss for key user:42, going to the database")
 logger.Info("request completed in 12ms")
 logger.Warn("retry 3 of 5 for user:42, the upstream is slow")
 logger.Error("upstream returned 502 for user:42")
-logger.Error("connection reset while reading the response")
 ```
 
 ![Leveled logging](assets/level-logging.gif)
 
-Levels are: `DebugLevel`, `InfoLevel`, `WarnLevel`, `ErrorLevel`, `FatalLevel`. They
-ascend in severity, which is what makes a filter worth having.
-
-### Level filter
-
-`Config.MinLevel` drops every call below it, before anything is written into the
-buffer. The zero value is `DebugLevel`, so a `Config` that says nothing about levels
-writes everything it always wrote.
+`DebugLevel`, `InfoLevel`, `WarnLevel`, `ErrorLevel`, `FatalLevel`.
 
 ```go
 logger := stacklog.CreateLogger(stacklog.Config{MinLevel: stacklog.WarnLevel})
@@ -107,19 +94,11 @@ logger.Error("upstream returned 502")       // written
 
 ![Level filter](assets/level-filter.gif)
 
-A filter writes its own level and everything more severe, so it cannot hide a worse
-problem than the problem it keeps. `Fatal` sits above the others and still exits: the
-only way to silence it is to set `MinLevel` past `FatalLevel`, which is a decision made
-on purpose rather than one that happens to you.
+A filter keeps its own level and everything above it, so it cannot hide a worse problem than the one it
+keeps. The zero value is `DebugLevel`. Set it where the logger is made — a derived logger inherits the
+filter, and changing it on the base afterwards does not reach the copy.
 
-The filter lives in `Config`, and `Config` is copied when a logger is derived. Set it
-where the logger is made. A derived logger inherits the filter; changing `MinLevel` on
-the base after deriving does not reach the copy. That is the same ordering rule the
-styles already follow, and `TestFilterSetAfterDerivingDoesNotReachTheCopy` keeps it
-from drifting.
-
-`Enabled` is the comparison the logger makes internally, exposed so a caller can skip
-building a message that would have been thrown away:
+`Enabled` is the same comparison, exposed so you can skip building a message that would be thrown away:
 
 ```go
 if logger.Enabled(stacklog.DebugLevel) {
@@ -127,13 +106,11 @@ if logger.Enabled(stacklog.DebugLevel) {
 }
 ```
 
-A filtered call costs about a nanosecond — 1.0 ns across ten counts of 3,000,000 calls — and
-allocates nothing. A line that is actually built costs 63.1 ns to render, before the write.
+A filtered call costs about 1 ns and allocates nothing. A line that is built costs 63 ns to render.
 
-### Key/value context
+## Key/value pairs
 
-Arguments are read in pairs — key, value, key, value — and rendered as
-`key=value`.
+Arguments are read in pairs and rendered as `key=value`.
 
 ```go
 kv := logger.WithParams("request_id", "b7f1c2", "user", "vlad")
@@ -143,13 +120,9 @@ kv.Error("upstream returned 502, retried 3 times")
 
 ![Key/value context](assets/upstream-502-error.gif)
 
-Supported value types: every `int` and `uint` width, `float32`, `float64`, `bool`,
-`string`, `error`, and `time.Duration`. A `time.Duration` is written as nanoseconds,
-because that is what it is — an `int64` counted in nanoseconds — so
-`1500 * time.Microsecond` writes `1500000`. `float32` is written in the shortest form
-that reads back as the same `float32`, so `float32(1.1)` writes `1.1` and not
-`1.100000023841858`. A nil value writes `<nil>`. Anything else is written as
-`<unsupported>`.
+Supported values: every `int` and `uint` width, `float32`, `float64`, `bool`, `string`, `error`,
+`time.Duration`. Anything else writes `<unsupported>`, a nil writes `<nil>`. An odd number of arguments is
+not validated — the last value is written with no key.
 
 ```go
 kv.WithParams("when", time.Now()).Error("a time.Time is not a supported value")
@@ -157,10 +130,13 @@ kv.WithParams("when", time.Now()).Error("a time.Time is not a supported value")
 
 ![Value types](assets/value-types.gif)
 
-> An odd number of arguments is not validated. The last value is written with no
-> key.
+A duration is written as nanoseconds, because that is what a duration is: `1500 * time.Microsecond` writes
+`1500000`. A `float32` is written in the shortest form that reads back as the same `float32`, so
+`float32(1.1)` writes `1.1`.
 
-### Prefix
+## Prefix
+
+A short label between the level and the message, owned by a derived logger.
 
 ```go
 prefixed := kv.WithPrefix("http")
@@ -170,34 +146,21 @@ prefixed.Error("handler entered, upstream slow")
 
 ![Prefix](assets/http-prefix-error.gif)
 
-`WithParams`, `WithPrefix` and `WithWriter` return new loggers. The original is
-never modified, so a base logger can be shared and specialised per call site.
+`WithParams`, `WithPrefix` and `WithWriter` return new loggers and never modify the original, so a base
+logger can be shared and specialised per call site. `WithProgress` derives one too and returns the bar —
+`p.Logger()` hands the logger back. Set styles before deriving: a copy takes its own `Config`, so a style
+changed afterwards does not reach the copy.
 
-> Each derived logger owns its own buffer, so deriving one per goroutine is the
-> safe pattern. Calling the same logger from two goroutines is not safe, and no
-> lock guards a logger. A derived logger shares its writer, so a writer used by
-> several loggers has to be safe for concurrent use in its own right: `os.Stdout`
-> is, a `bytes.Buffer` is not.
+## Colours and styles
 
-> Because the copy takes its own `Config`, a style change made after the copy does
-> not reach the copy. Set the style first, then derive the logger.
-
-### Colours and styles
-
-Three accepted forms:
+Index, 256-colour, or hex, on any component of a line, per level and per key/value pair.
 
 ```go
-stacklog.NewStyle().Foreground(242)                  // 256-colour index
+stacklog.NewStyle().Foreground(242)                            // 256-colour index
 stacklog.NewStyle().Foreground(stacklog.ColorRGB{R: 171, G: 205, B: 239})
-stacklog.NewStyle().Foreground("#D75F5F")            // truecolour hex
+stacklog.NewStyle().Foreground("#D75F5F")                      // truecolour hex
 stacklog.NewStyle().Background(stacklog.ColorReset)
 ```
-
-A style can be set through `Config` at creation, or on the logger after. A
-component left as the zero value falls back to the named preset, which is the
-package palette when no preset is given.
-
-Per-level and per-pair styles:
 
 ```go
 styled := stacklog.CreateLogger(stacklog.Config{})
@@ -215,97 +178,58 @@ styled.WithParams("user", "vlad").Error("upstream returned 502 for user:42")
 
 ![Colours and styles](assets/upstream-502-error-params.gif)
 
-> The key and the value are in different colours here, which is what the
-> `ParamsStyle` block controls.
+A component you set wins; a component left empty falls back to the preset, and the preset is the package
+palette when you name none. `HexToRGB` accepts only `#RRGGBB` — anything else returns white. Indices 8 to
+15 take the bright ANSI range, 16 and above are written in 256-colour form.
 
-> `HexToRGB` accepts only `#RRGGBB`. Any other input returns white. `Color(0)` is
-> black, not a sentinel — the "not set" state is carried separately, so a style
-> that sets nothing emits no escape sequence.
+## Which writers get colour
 
-**Which writers get colour.** `Config.Colors` takes `ColorsAuto`, `ColorsOn` or
-`ColorsOff`, and the empty string is `ColorsAuto`:
+`Config.Colors` decides, and the default paints only a terminal.
 
 ```go
-stacklog.CreateLogger(stacklog.Config{})                        // colour, if stdout is a terminal
-stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOn}) // colour, whatever the writer is
-stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOff}) // never, whatever the writer is
+stacklog.CreateLogger(stacklog.Config{})                             // colour, if stdout is a terminal
+stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOn})   // colour, whatever the writer is
+stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOff})  // never, whatever the writer is
 ```
 
-`ColorsAuto` is the behaviour the package defaults to now, and it is a change: a
-pipe, a redirected file, a `bytes.Buffer` and `io.Discard` receive no escape sequences
-at all, which is the case `Style.NoColors` used to exist to cover. An unrecognised
-name resolves to `ColorsAuto`, the same rule an unrecognised preset name follows.
+`ColorsAuto` (the empty string) means: colour only when the writer is an `*os.File` on descriptor 1 or 2
+attached to a character device. A pipe, a redirected file, a `bytes.Buffer` and `io.Discard` get no escape
+sequences at all. An unrecognised name resolves to `ColorsAuto`, the same rule an unrecognised preset
+follows.
 
-Two limits are stated rather than left to be discovered:
+- `Style.NoColors` outranks all three and can only turn colour off.
+- Nothing sees through a wrapper: a `bufio.Writer` around a terminal reads as not a terminal. That is what
+  `ColorsOn` and `ColorsOff` are for.
+- The decision is made when the writer is known — in `CreateLogger` and in `WithWriter` — and changing
+  `Config.Colors` afterwards does nothing. Re-deciding per line would mean a `Stat` syscall on the hot path.
+- Suppression gates the escapes the *package* emits. A message that already contains them keeps them, so
+  a message built from a request body or an upstream error string can carry a control sequence into your
+  terminal.
 
-- The test is "standard output or standard error, attached to a character device",
-  not "a character device". `/dev/null` is a character device, so the descriptor half
-  is what stops it being called a terminal, and `TestDevNullIsNotATerminal` is that guard.
-- Nothing sees through a wrapper. A `bufio.Writer` around a terminal is not an
-  `*os.File`, so it reads as not a terminal. Wrapping a writer takes the decision out
-  of the package and hands it to `ColorsOn` and `ColorsOff`, which is what they are for.
+## Presets
 
-`Style.NoColors` outranks all three and can only ever turn colour off. The answer is
-resolved when the writer is known — in `CreateLogger` and in `WithWriter` — and
-changing `Config.Colors` after that does not change it. Making it respond would mean a
-`Stat` syscall on the per-line path, which is the one place this package refuses to pay.
-
-One limit on that gate, stated because it is the kind of thing a caller assumes the other
-way: suppression applies to escape sequences the *package* emits. A message that already
-contains them keeps them, with `ColorsOff` set and with `NoColors` set, because a logger
-copies message bytes rather than interpreting them. `NoColors` is not a sanitizer, and a
-message assembled from anything outside the program — a request body, an upstream error
-string, a filename — can carry a control sequence into your terminal. `TestSuppressionGatesWhatThePackageEmitsNotWhatTheCallerWrites`
-pins this as documented behaviour rather than luck.
-
-### Presets
-
-A preset is a complete style: colours, padding, and the level labels. Pick one by
-name, and override a single component on top of it.
+A preset is a complete style: colours, padding, level labels, bar palette.
 
 ```go
 logger := stacklog.CreateLogger(stacklog.Config{
 	Timestamp: true,
-	Style: stacklog.Style{
-		Preset: stacklog.PresetBadge,
-	},
+	Style:     stacklog.Style{Preset: stacklog.PresetBadge},
 })
 
 logger.Error("upstream returned 502 for user:42")
 ```
 
-Four names, and an unknown name resolves to `PresetDefault`. Every preset carries a palette.
+![Presets](assets/presets.gif)
 
 | Preset | What it is |
 |---|---|
 | `PresetDefault` | grey timestamp and prefix, coloured level text, four-letter labels |
-| `PresetMuted` | low-chroma palette, full-word labels. For long-running services and for output that ends up in a file |
-| `PresetBadge` | the level as a block — background colour, white text, padding inside the block, three-letter labels |
+| `PresetMuted` | low-chroma palette, full-word labels. For services and for output that ends up in a file |
+| `PresetBadge` | the level as a block — background colour, white text, padding inside it, three-letter labels |
 | `PresetHighContrast` | bright colours for legibility, four-letter labels |
 
-![Presets](assets/presets.gif)
-
-`NoColors` is a flag, not a preset. It applies to any preset and writes no escape
-sequence at all:
-
-```go
-logger := stacklog.CreateLogger(stacklog.Config{
-	Style: stacklog.Style{Preset: stacklog.PresetMuted, NoColors: true},
-})
-
-logger.Warn("labels from the preset, no colour codes, no reset codes")
-```
-
-The flag wins over an explicit component. A caller who sets a colour and sets
-`NoColors` gets no colour. That is the precedence, and `TestNoColorsWinsOverAnExplicitStyle`
-asserts it so it cannot change silently.
-
-Padding is not affected by the flag. `Left` and `Right` exist to sit inside a
-coloured block, and with no colour there is no block, so they become plain
-whitespace. That is an open decision, not a solved one.
-
-A component you set yourself wins. The preset fills only what is left empty, so
-one override changes one component and the rest of the preset stands.
+An unknown name resolves to `PresetDefault`. `NoColors` is a flag rather than a preset: it applies to any of
+them, writes no escape sequence at all, and wins over a colour you set yourself.
 
 ```go
 styled := stacklog.CreateLogger(stacklog.Config{
@@ -321,27 +245,11 @@ styled := stacklog.CreateLogger(stacklog.Config{
 styled.Error("only level 0 is the override, the rest comes from the preset")
 ```
 
-The logger prefix is styled through `Style.Prefix`. It used to be hardcoded, so a
-preset could not reach it.
+One override changes one component and the rest of the preset stands.
 
-> A preset cannot express an intentionally empty label, because an empty string
-> means "not set". Same class of problem as the colour sentinel.
+## Padding
 
-> Indices 8 to 15 take the bright ANSI range — 90 to 97 for the foreground and
-> 100 to 107 for the background — and 16 and above are written through the
-> 256-colour form. `PresetHighContrast` chooses from the 256-colour range.
-
-> The `PresetMuted` labels are full words — `debug`, `info`, `warn`, `error`,
-> `fatal` — so they are not the same length and the message column shifts between
-> levels. Accepted here: a muted line is not meant to be aligned.
-
-> `ParamsStyle` is guarded as a whole triple, not as `Param`, `Equal` and `Value`
-> separately. Setting one of them means the other two stay empty and emit nothing.
-
-### Padding
-
-`Top`, `Left`, `Bottom`, `Right`. Left and Right are spaces written inside the
-coloured block, so a badge with a background extends over them.
+Spaces around a component, written inside its coloured block.
 
 ```go
 badge := stacklog.CreateLogger(stacklog.Config{})
@@ -356,11 +264,13 @@ badge.Error("connection reset while reading the response")
 
 ![Padding](assets/connection-reset-error.gif)
 
-> Top is honoured only for the first component on the line. Bottom is never
-> emitted mid-line — it is accumulated as the maximum across the line and flushed
-> after the line ends.
+`Top` applies to the first component on the line — with a timestamp enabled that is the timestamp style, not
+the level style. `Bottom` is never emitted mid-line: it is accumulated as the maximum across the line and
+flushed after it ends.
 
-### Timestamp
+## Timestamp
+
+`Timestamp: true`, and the layout is a Go reference-time layout.
 
 ```go
 ts := stacklog.CreateLogger(stacklog.Config{
@@ -373,91 +283,12 @@ ts.Info("request completed in 12ms")
 
 ![Timestamp](assets/info-request-timestamp.gif)
 
-`TimeFormat` is a Go reference-time layout. When it is empty, `time.DateTime` is
-used.
+Left empty, `time.DateTime` is used in text mode and RFC3339 in JSON mode.
 
-> With a timestamp enabled, the timestamp is the first component, so `Top` padding
-> has to be requested on the timestamp style. Setting it on the level style does
-> nothing, because the line-start state is already consumed.
+## JSON output
 
-### Writing to a file
-
-```go
-package main
-
-import (
-	"os"
-
-	"github.com/itsvlxd/stacklog"
-)
-
-func main() {
-	base := stacklog.CreateLogger(stacklog.Config{})
-
-	f, err := os.OpenFile("readme-example.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		os.Stderr.WriteString("could not open the log file: " + err.Error() + "\n")
-		return
-	}
-	defer f.Close()
-
-	logger := base.WithWriter(f)
-
-	if err := logger.Error("service started, listening on 0.0.0.0:8080"); err != nil {
-		os.Stderr.WriteString("write failed: " + err.Error() + "\n")
-	}
-
-	coloured := stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOn}).WithWriter(f)
-
-	if err := coloured.Error("same call, colour asked for"); err != nil {
-		os.Stderr.WriteString("write failed: " + err.Error() + "\n")
-	}
-}
-```
-
-![Writing to a file](assets/wrote-line-readme-log.gif)
-
-Contents of `readme-example.log`, quoted line by line by the showcase so what lands in
-the file is visible rather than interpreted:
-
-```text
-readme-example.log: "ERRO service started, listening on 0.0.0.0:8080\n"
-readme-example.log: "\x1b[31mERRO\x1b[0m same call, colour asked for\n"
-```
-
-> The first line is what `ColorsAuto` writes to a file: nothing coloured, because a
-> file is not a terminal. The second is the same call with `ColorsOn`. There is no
-> terminal detection beyond that rule, and `TestColorsAutoLeavesARegularFileUncoloured`
-> asserts the plain half so it cannot quietly regress.
-
-### Handling write errors
-
-`Debug`, `Info`, `Warn` and `Error` return the write error. A short write is
-returned as `ErrShortWrite`, because by the `io.Writer` contract a short write is
-a failure, not a partial success.
-
-```go
-if err := logger.Error("upstream returned 502 for user:42"); err != nil {
-	os.Stderr.WriteString("write failed: " + err.Error() + "\n")
-}
-```
-
-```text
-write failed: stacklog: short write
-```
-
-![Handling write errors](assets/handling-write-errors.gif)
-
-> The buffer is reset after a failed write, so one failure does not corrupt the
-> following lines. A short write also means the padding never reaches the writer,
-> because the flush failed before it got there.
-
-### JSON output
-
-`Config.Format` switches what one call writes. `FormatJSON` emits a single JSON object per
-call, newline terminated, so the line a parser reads is the line the logger built. The zero
-value writes text, and an unknown format name resolves to text, so nothing that works today
-changes unless you ask for it.
+`Config.Format` switches what one call writes: one object per call, newline terminated, so the line a parser
+reads is the line the logger built.
 
 ```go
 logger := stacklog.CreateLogger(stacklog.Config{Format: stacklog.FormatJSON})
@@ -471,18 +302,14 @@ logger.WithPrefix("http").WithParams("user", "vlad", "ms", 12.4).Error("upstream
 
 ![JSON output](assets/json-output.gif)
 
-Above it, in the same showcase section, the same call in text mode: `ERRO http: upstream 502
-user=vlad ms=12.4`. Adding `Timestamp: true` puts a `"time"` field first, in RFC3339 when
-`TimeFormat` is left empty — `"time":"2026-11-11T15:46:52+02:00"` — because a JSON timestamp is
-meant to be parsed and `"2026-11-11 15:46:52"` carries no offset.
+Colours are off because escape codes inside a JSON string are noise to a parser, not because you asked —
+`Config.Colors` reads back as `ColorsOff` on a JSON logger. Padding and `Style.LevelPrefix` are inert: the
+level is a field with five fixed values, so `DEBU` or `!!` would duplicate it or replace it with something a
+parser cannot match on. The zero format writes text, and an unknown name resolves to text.
 
-Colours are off because escape codes inside a JSON string are noise to a parser, not because
-you asked. `Style.NoColors` is what does it, and `Config.Style.NoColors` reads back as `true` on
-a JSON logger, alongside `Config.Colors` reading back as `ColorsOff`. Padding is inert, and so is
-`Style.LevelPrefix`: in JSON the level is a field with five fixed values, so a label like `DEBU` or
-`!!` would either duplicate it or replace it with something a parser cannot match on.
-
-The shape is exported rather than implied, which is the point of the mode:
+Types keep their JSON forms — a number is a number, a bool is a bool, a duration is the nanoseconds it
+already is, a nil is `null`, an error is the string from `Error()` — and the shape is exported rather than
+implied:
 
 ```go
 var e stacklog.Entry
@@ -494,83 +321,41 @@ if err := json.Unmarshal(line, &e); err != nil {
 fmt.Println(e.Level, e.Msg, e.Params["user"], e.Truncated)
 ```
 
-Types keep their JSON forms. A number is a number, a bool is a bool, a duration is the
-nanoseconds it already is in text mode, a `nil` interface is `null`, and an error is the string
-from `Error()`. A value the package cannot render is the same `<unsupported>` token text mode
-writes — kept distinct from `null` so "could not render this" is not confused with "this is
-nil". Keys that are not strings keep their text-mode rendering inside quotes, so
-`WithParams(1, "x")` writes `"1":"x"`.
+A line too big for the buffer is cut where a cut cannot break it: the message gives way, ends with `...`,
+and the object gains `"truncated":true`. A pair that will not fit is dropped whole — never half a pair,
+never a dangling `"key":`. Content stops at 1004 bytes in JSON mode against 1020 in text mode, because the
+tail that closes an object has to be reserved rather than hoped for.
 
-A line too big for the buffer is cut where a cut cannot break it. The message is the field
-that gives way: cut inside its own string, ends with `...`, and the object gains
-`"truncated":true`. A key/value pair that will not fit is not written at all — never half a
-pair, never a dangling `"key":`. Content stops at 1004 bytes in JSON mode against 1020 in text
-mode, because the tail that closes an object has to be reserved rather than hoped for.
+## Plain output
 
-### Plain output, and the logo
-
-`Plain` writes the payload and the terminator, and nothing else. No level label, no prefix, no
-timestamp, no key/value pairs, no colour, no padding. It exists for output that is not a log line
-— a banner, a wordmark, help text — on the writer the logger already owns, so a program does not
-end up with two routes to stdout where only one of them honours `WithWriter`.
+`Plain` writes the payload and the terminator, and nothing else — no level, prefix, timestamp, params,
+colour or padding. It is for output that is not a log line: a banner, help text, a wordmark. It goes to the
+writer the logger already owns, so a program does not end up with two routes to stdout where only one of
+them honours `WithWriter`.
 
 ```go
 logger := stacklog.CreateLogger(stacklog.Config{})
 
-for _, row := range logoRows {
-	if err := logger.Plain(row); err != nil {
-		fmt.Fprintln(os.Stderr, "could not print the wordmark:", err)
+if err := logger.Plain("stacklog — fixed buffer, no growth, one line per log call"); err != nil {
+	fmt.Fprintln(os.Stderr, "could not print the banner:", err)
 
-		return
-	}
+	return
 }
-
-logger.Plain("fixed buffer · no growth · one line per log call")
 ```
 
 ![The wordmark, printed by the package itself](assets/stacklog-logo.gif)
 
-That capture is `stacklog` printing its own logo: the showcase section runs the calls above through
-a real terminal recorder, so the wordmark on this page was written by the code it documents. The art
-is a checked-in constant — not generated at run time, not typed by hand. It was produced by rendering
-`stacklog` in DejaVu Sans Bold at 420 px, cropping to the ink, adding a margin of at least half a cell
-on every side, then area-resampling into cells whose height is twice their width, which is the shape a
-character has in a terminal, and mapping each cell to `▄`, `▀` or `█` depending on whether its lower
-half, its upper half, or both are covered.
+That capture is `stacklog` printing its own logo. The art is a checked-in constant — `logoRows` in
+`example/main.go` — and it takes ten `Plain` calls because the wordmark as one payload is 1,323 bytes
+against a 1,020-byte content area. The buffer does not grow, so the logo is written in rows.
 
-Three bugs sat between the first attempt and the version in the capture above, and each one is the
-kind of thing that looks acceptable in a preview and wrong on a page: a crop tight to the ink put the
-`g` descender and the right side bearing exactly on a cell boundary; the row count was rounded down,
-which dropped the descender's row outright; and a trim pass deleted every fully-empty column, which
-closed the gutters between letters and merged the word into a single shape. Only the outer margins are
-trimmed. Interior whitespace is what makes it read as eight letters rather than as a blob.
+`MinLevel` does not filter it, `FormatJSON` does not wrap it, and style is inert on it. The consequence of
+the second is worth knowing: a JSON stream that also prints a banner contains lines that are not objects.
 
-Ten `Plain` calls rather than one, and that is the fixed buffer doing its job rather than a limitation
-of the art. The wordmark as a single payload is 1323 bytes against a 1020-byte content area: the first
-attempt printed it in one call and the line arrived already cut, mid-`g`, marker on it. The buffer does
-not grow. A logo that arrives clipped is worse than a logo that costs ten writes.
+## Progress bar
 
-Three rules, each one asserted in a test:
-
-- `MinLevel` does not filter it. A logger set to `WarnLevel` still prints its banner, because a banner
-  is not a log level.
-- `FormatJSON` does not wrap it. A JSON logger asked for a plain write produces exactly the text, and
-  the log lines beside it stay objects. The consequence is stated rather than left implied: a JSON
-  stream that also prints a banner contains lines that are not objects, so whatever parses it skips the
-  lines that do not begin with `{`.
-- Style is inert. A logger with a coloured, padded level and a prefix set writes the payload alone and
-  produces one newline, nothing else.
-
-Block characters are three bytes each and two of them are half-cells, so the multi-line test payload is
-three real rows of the wordmark rather than a made-up string: `Plain` has to carry `▀`, `▄` and `█`
-without escaping, splitting or reordering them, and the assertion is that it does.
-
-### Progress
-
-`WithProgress` attaches a progress bar to a derived logger. Every line the bar writes is an ordinary
-`stacklog` line — timestamp if the logger has one, the level's label and colour, the prefix, the message,
-the key/value pairs — and the bar is what comes at the end of it. On a terminal the line replaces itself.
-In a file it is a normal terminated line, one row per update, each row carrying its own bar.
+`WithProgress` attaches a bar to a derived logger. Every line the bar writes is an ordinary `stacklog` line
+— timestamp, level label, prefix, message, params — and the bar is what comes at the end of it.
 
 ```go
 logger := stacklog.CreateLogger(stacklog.Config{}).WithParams("file", "index")
@@ -591,17 +376,14 @@ if err := p.Done("index rebuilt"); err != nil {
 }
 ```
 
-On a terminal that is one line, redrawn in place — carriage return, the line again with a longer bar in
-it, erase-to-end-of-line, and no newline written until the run ends:
+On a terminal, one line redrawn in place:
 
 ```text
 INFO rebuilding index file=index ███████░░░░░░░░░░░░░░░░░ 600/1500 40% 8.2s
 ```
 
-![Progress](assets/progress-bar.gif)
-
-The same run written to a file. A file cannot redraw, so a bar there is drawn once per row and every
-update is its own row — the history of the run down the page, the bar lengthening as you scroll:
+In a file, one row per update, each row carrying its own bar — the history of the run, lengthening as you
+scroll:
 
 ```text
 INFO rebuilding index file=index ███░░░░░░░░░░░░░░░░░ 2/12 16% 0.0s
@@ -609,94 +391,111 @@ INFO rebuilding index file=index ██████░░░░░░░░░�
 INFO index rebuilt file=index ████████████████████ 12/12 100% 0.4s
 ```
 
-That costs about 60 bytes a row at the demo's 20-cell bar and 120 at the default 40. It is the price of
-putting a progress bar somewhere that cannot replace a line, and the redraw budget is what stops it from
-becoming 120 bytes times a million rows. Nothing about those rows is a control sequence: no carriage
-return, no erase, nothing a log viewer has to strip.
-
-**A progress line is a log line.** That is the whole design, and it is why the bar hangs off
-`WithProgress` rather than being a separate kind of output: a bar and a log line go through the same line
-builder, so they cannot drift apart. Everything a line carries arrives the same way it does for
-`Info` or `Error`, and the tail is the only new part.
-
-It also decides what `MinLevel` means here. The bar's lines have a level — `ProgressOptions.Level`,
-`DebugLevel` by default, which is what the package already calls "information about work in flight" — and
-a filtered level means no bar, not a hidden one. `ProgressOptions.Message` is the text every bar line
-carries, defaulting to `progress`, and `Done`, `Abort` and `Finish` give the last line its own message.
-`Done` and `Abort` are `Finish` with the level chosen for you: a finished job is info, a failed one is
-error, and `Finish(WarnLevel, "index rebuilt with 3 skipped")` is the run that finished with problems in
-it — which is its own shape of line, not a compromise between those two.
-
-One asymmetry is deliberate and asserted: **a bar that has drawn lines is terminated even when its
-result line is filtered.** A level filter is not allowed to leave half a line sitting unterminated on
-someone's screen. `TestProgressTerminatesABarWhoseResultLineWasFiltered` is that rule.
-
-**The numbers appear once, and each format gets the form it can use.** A text line puts them beside the
-bar — `600/1500 40% 8.2s` — and nowhere else. A JSON line carries them as fields, one object per update:
+In JSON, one object per update carrying the numbers rather than the glyphs:
 
 ```json
 {"level":"debug","msg":"rebuilding index","params":{"pct":16,"done":2,"total":12,"ms":80,"filled":6,"width":20}}
 ```
 
-There is no bar string in a JSON row. A bar is a rendering, not data, and `filled` and `width` are the
-two numbers a renderer needs — 104 bytes of parseable state instead of 120 bytes of box-drawing
-characters inside something meant for a machine. `Entry.Params` carries them, so decoding the shape is
-documented API rather than guesswork. A line that states the same number twice reads as noise, and the
-tests check that neither format does it.
+![Progress](assets/progress-bar.gif)
 
-**The bar is styled like everything else, and it has a default look.** `Style.Progress` is a
-`ProgressStyle{Filled, Empty, Numbers}`, each an ordinary `CompStyle`, and every preset carries one. The
-package default is a green filled run (`70`) on the same `242` grey the timestamp and keys already use,
-with the counts in white. Muted is a quieter `108` on `240`. Badge puts the filled run on a dark slab —
-`236` behind `70` — because the badge idea is a block the eye can read at a glance. High contrast uses
-`82`. A caller who sets `Style.Progress` replaces the whole set, exactly as a single style component
-stands against a preset everywhere else in this README.
+| option | default |
+|---|---|
+| `Width` | 40 cells |
+| `Every` | 80 ms — the shortest gap between redraws |
+| `Level` | `DebugLevel`, so `MinLevel` filters bar lines like any other line |
+| `Message` | `"progress"` |
 
-`NoColors` and `ColorsOff` gate the bar's *colours* and nothing else: a suppressed bar still draws its
-glyphs and still writes its clearing sequence, because a bar that stops erasing the longer line before it
-leaves ghosts on the screen. Left and Right padding are honoured inside a bar line; Top and Bottom are
-not, on `Style.Progress` or on the level style — they write newlines, and a redraw needs its line to stay
-one line.
+`Done` and `Abort` end the run at info and error. `Finish(level, message)` ends it at a level you choose,
+which is what a run that finished with problems in it needs. A redraw is due when the bar would actually
+look different, and never more often than `Every`: a thousand ticks inside one budget produce two writes.
 
-**Redraws are budgeted, not counted.** A line is due when the filled cells or the whole-number percentage
-would actually look different, and never more often than `Every` (80 ms by default, about twelve frames a
-second, which is faster than a bar needs to move to look alive). A thousand ticks with a one-hour budget
-produce two writes whatever the loop looks like. The two flags mean different things and are kept
-separate on purpose: `drawn` means there is an open, unterminated bar line on the reader's screen, and
-the budget is about time. A bar writing lines into a file never opens a line, and folding those two
-concepts into one flag once meant file milestones ignored the budget entirely.
+The bar is styled like everything else. `Style.Progress` is a `ProgressStyle{Filled, Empty, Numbers}` of
+ordinary `CompStyle`s, every preset carries one, and the package default is green `70` on the same `242`
+grey the timestamp and keys already use, with the counts in white. `NoColors` and `ColorsOff` gate the
+colours and not the glyphs: a suppressed bar still draws, and still erases the longer line in front of it,
+because a bar that stops erasing leaves ghosts.
 
-**The width is fixed, and the clamp is honest about it.** 40 cells by default, clamped to 290 when a
-coloured bar is asked for, because the clamp counts the style runs as well as the cells — a coloured bar
-is a longer bar. The clearing sequence is written past the content limit into the reserved tail, so a line
-cut short still erases and still ends cleanly. Terminal width is not bytes: it is `ioctl(fd, TIOCGWINSZ)`,
-which the standard library does not offer in portable form, so it would cost `syscall` with build tags or
-`golang.org/x/term`, and this package has neither. `Width` is the escape hatch for a caller who knows
-their terminal is narrower. Whether the package ever learns the width itself is
-[#31](https://github.com/itsvlxd/StackLog/issues/31), and "the caller says" is a serious candidate answer
-rather than a placeholder for one.
+Two limits worth knowing:
 
-**`WithProgress` derives, like `WithParams` and `WithPrefix`.** The bar writes through its own derived
-logger on its own buffer, which is what makes one bar per goroutine the safe pattern, and
-`p.Logger()` hands that logger back so a run can keep being specialised — a prefix per stage, params per
-file — without the bar's lines being affected by it. Two `WithProgress` calls on one logger produce two
-bars with two buffers, never two bars on one line.
+- Width is fixed at 40 cells, clamped to 290 with a coloured bar, because a coloured bar is a longer bar.
+  Terminal width is an ioctl rather than bytes and this package has no `syscall` and no
+  `golang.org/x/term`, so `Width` is the lever — see [#31](https://github.com/itsvlxd/StackLog/issues/31).
+- A bar redraws only where the package proved a terminal. `ColorsOn` puts colour in a file and never puts
+  control bytes there. In a file the bar costs about 120 bytes a row at the default width — the price of
+  drawing one somewhere that cannot replace a line — and the redraw budget is what keeps it finite.
 
-Measured in the sitting that produced the benchmark table below, ten counts of 3,000,000, nothing else
-running: a `Tick` that decides not to draw costs **13.0 ns** and allocates nothing. A redrawn bar line on
-a terminal costs **166.9 ns** uncoloured and **204.6 ns** with the preset's bar colours in it — colour on
-a bar is about 38 ns a line, the same shape of tax colour costs on a log line — and neither allocates
-anything, because the numbers are formatted straight into the buffer. A bar run ending costs **707.9 ns**
-with 3,264 bytes and four allocations, which is the derived logger, its own 1,024-byte buffer, the
-`Progress` object and its params, paid once per operation rather than once per line, plus the completed
-bar the final row draws. At 120,000 items the same ending is 729.0 ns and the same allocations, because
-no numbers are boxed in text mode at all. The log-line path is unchanged by all of it — `RenderPath`
-63.1 ns and `ErrorToDiscardText` 66.2 ns in the same sweep — and that was measured rather than asserted.
+## Writing to a file
 
-### Working across goroutines
+`WithWriter` returns a logger that owns the same style and params and writes somewhere else.
 
-A logger is cheap to derive and every derived logger owns its own 1024-byte buffer. That is what
-makes the safe pattern the obvious one: one logger per goroutine, all of them sharing a writer.
+```go
+package main
+
+import (
+	"os"
+
+	"github.com/itsvlxd/stacklog"
+)
+
+func main() {
+	base := stacklog.CreateLogger(stacklog.Config{})
+
+	f, err := os.OpenFile("readme-example.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		os.Stderr.WriteString("could not open the log file: " + err.Error() + "\n")
+
+		return
+	}
+	defer f.Close()
+
+	logger := base.WithWriter(f)
+
+	if err := logger.Error("service started, listening on 0.0.0.0:8080"); err != nil {
+		os.Stderr.WriteString("write failed: " + err.Error() + "\n")
+	}
+
+	coloured := stacklog.CreateLogger(stacklog.Config{Colors: stacklog.ColorsOn}).WithWriter(f)
+
+	if err := coloured.Error("same call, colour asked for"); err != nil {
+		os.Stderr.WriteString("write failed: " + err.Error() + "\n")
+	}
+}
+```
+
+![Writing to a file](assets/wrote-line-readme-log.gif)
+
+What lands in `readme-example.log`, quoted by the showcase so it is visible rather than interpreted:
+
+```text
+readme-example.log: "ERRO service started, listening on 0.0.0.0:8080\n"
+readme-example.log: "\x1b[31mERRO\x1b[0m same call, colour asked for\n"
+```
+
+## Write errors
+
+Every log call returns the write error, and a short write is an error.
+
+```go
+if err := logger.Error("upstream returned 502 for user:42"); err != nil {
+	os.Stderr.WriteString("write failed: " + err.Error() + "\n")
+}
+```
+
+```text
+write failed: stacklog: short write
+```
+
+![Handling write errors](assets/handling-write-errors.gif)
+
+A short write is returned as `ErrShortWrite`, because by the `io.Writer` contract a short write is a
+failure, not a partial success. The buffer is reset after a failed write, so one failure does not corrupt
+the lines after it.
+
+## Goroutines
+
+A logger is cheap to derive and every derived logger owns its own 1024-byte buffer, which makes the safe
+pattern the obvious one: one logger per goroutine, all of them sharing a writer.
 
 ```go
 base := stacklog.CreateLogger(stacklog.Config{})
@@ -724,24 +523,19 @@ base.Plain("order is not guaranteed. ownership is.")
 
 ![Four goroutines, four buffers, one writer](assets/goroutine-loggers.gif)
 
-The order the lines land in is not a contract, and the capture is the proof of that rather than a
-concession to it: the same section recorded twice is a different picture. What is guaranteed is
-that no two goroutines share a buffer, so no two goroutines share `BufLen` or a half-written line.
+The order the lines land in is not a contract. What is guaranteed is that no two goroutines share a buffer,
+so no two share a length counter or a half-written line. Two things this does not make safe:
 
-Two things it does not make safe:
+- **The same logger called from two goroutines.** No lock guards a logger, and a shared logger means a
+  shared buffer — the symptom is a line written under another goroutine's prefix, or two calls merged into
+  one.
+- **The writer.** A derived logger shares its writer, so that writer has to be safe for concurrent use on
+  its own. `os.Stdout` is. A `bytes.Buffer` is not, and neither is one `bufio.Writer` shared between
+  loggers in eight goroutines — one buffered writer per goroutine.
 
-- **The same logger called from two goroutines.** No lock guards a logger, and a shared logger
-  means a shared buffer. The symptom is a line written under another goroutine's prefix, or two
-  calls merged into one. One derived logger per goroutine — `TestDerivedLoggersPerGoroutineWriteWholeLines`
-  asserts exactly that: eight goroutines, 1,600 lines through a mutex-guarded writer, every line
-  matching the shape an intact line has, every logger holding its own count, under `-race`.
-- **The writer.** A derived logger shares its writer with whatever it came from, so that writer has
-  to be safe for concurrent use in its own right. `os.Stdout` is. A `bytes.Buffer` is not, and
-  neither is a `bufio.Writer` shared between loggers in eight goroutines — which is the throughput
-  advice further down this page colliding with the concurrency rule, and the reason one buffered
-  writer per goroutine is the shape to reach for.
+## Fatal
 
-### Fatal
+`Fatal` writes the line, flushes if the writer can be flushed, and exits.
 
 ```go
 logger.Fatal("shutting down, the port is still in use")
@@ -749,29 +543,24 @@ logger.Fatal("shutting down, the port is still in use")
 
 ![Fatal](assets/shutting-down-fatal.gif)
 
-`Fatal` writes the line, flushes the writer if it can be flushed, then calls
-`os.Exit(1)`. It does not return an error, because it never returns. A write failure
-is reported to `os.Stderr` on a best-effort basis. Deferred functions do not run,
-which is why the flush happens here instead of being left to your `defer`.
+It does not return an error because it never returns, and a write failure goes to `os.Stderr` on a
+best-effort basis. Deferred functions do not run, which is why the flush happens there rather than being
+left to your `defer`.
 
-### Throughput and buffering
+## Buffering and throughput
 
-A log line has two costs and only one of them is yours to reduce. End to end, 500,000 identical
-lines of the shape this package is used at — a level label and two key/value pairs, no timestamp and
-no prefix — on the same machine as the benchmarks below, median of five runs:
+Building a line is about 42 ns uncoloured and 66 ns coloured. Everything after that is the write, and a
+buffered writer is the whole difference. 500,000 lines of the shape this package is used at — a level label
+and two key/value pairs, no timestamp, no prefix — to a real file, median of five runs:
 
 | writer | ns per line | lines per second | bytes per line |
 |---|---|---|---|
-| one syscall per line, straight to a file, `ColorsAuto` | 309 | 3.2M | 57.0 |
-| the same file, `ColorsOn` — colour asked for explicitly | 381 | 2.6M | 116.0 |
+| one syscall per line, `ColorsAuto` | 309 | 3.2M | 57.0 |
+| the same file, `ColorsOn` | 381 | 2.6M | 116.0 |
 | `bufio.Writer` at 256 KB, `ColorsAuto` | 97 | 10.3M | 56.6 |
 | the same buffered, `ColorsOn` | 155 | 6.5M | 115.9 |
 | the same buffered, `FormatJSON` | 119 | 8.4M | 94.9 |
-| coloured text buffered, `WithParams` called per line | 373 | 2.7M | 115.9 |
-
-Building the line is about 42 ns of the third row and 66 ns of the fourth. Everything after that is
-the write, and a buffered writer is the whole difference — 309 ns per call becomes 97 ns.
-`WithWriter` already takes one:
+| buffered, coloured, `WithParams` called per line | 373 | 2.7M | 115.9 |
 
 ```go
 bw := bufio.NewWriterSize(f, 256*1024)
@@ -780,177 +569,128 @@ defer bw.Flush()
 logger := stacklog.CreateLogger(stacklog.Config{}).WithWriter(bw)
 ```
 
-What that sample writes to a file is the plain row above it: a `bufio.Writer` is not a terminal, so
-`ColorsAuto` declines to paint, and `ColorsOn` is how you ask for the coloured row instead.
+Three consequences, each one a change to what the logger promises:
 
-The last row is the trap, and it is the one a caller walks into by instinct. `WithParams` returns
-a new logger, and a new logger owns a new 1024-byte buffer, so calling it on every line builds a
-buffer per line: 373 ns against 155 ns for identical output. Derive once, reuse it.
+- **Errors move to the flush.** `logger.Error(...)` returns nil once the bytes are buffered. The real
+  failure surfaces at `Flush`, and only if you check it.
+- **Decide the latency you are accepting.** Buffered output leaves when the buffer fills, so a quiet service
+  can hold its last lines for a long time. Flush on a timer as well as on size if that matters.
+- **The last row is the trap.** `WithParams` returns a new logger and a new logger owns a new buffer, so
+  calling it per line builds a buffer per line: 373 ns against 155 for identical output. Derive once, reuse
+  it.
 
-Three consequences, each one a change to what the logger promises.
-
-- **Errors move to the flush.** `logger.Error(...)` returns nil once the bytes are
-  buffered. The real failure surfaces at `Flush`, and only if you check it.
-- **Decide the latency you are accepting.** Buffered output leaves when the buffer
-  fills, so a quiet service can hold its last lines for a long time. If that matters,
-  flush on a timer as well as on size — zap defaults to 256 KB and 30 seconds,
-  whichever comes first, and that interval is your worst-case visibility delay.
-- **`bufio.Writer` is not safe for concurrent use.** A derived logger shares its
-  writer, so one buffered writer reached from loggers in eight goroutines is a data
-  race. One buffered writer per goroutine, or lock it yourself.
-
-This package builds into its own fixed buffer and hands the bytes to whatever writer
-you supply. It does not hold a write buffer for you: a logger owning a heap-allocated
-buffer contradicts the fixed per-line buffer the package exists to provide.
+The package builds into its own fixed buffer and hands the bytes to whatever writer you supply. It does not
+hold a write buffer for you: a logger owning a heap-allocated buffer would contradict the fixed per-line
+buffer the package exists to provide.
 
 ## Benchmarks
+
+Every log line this package writes is `0 B/op` and `0 allocs/op`. Measured on an i9-12900KS, 24 logical
+processors, Go 1.27.3, on 2026-11-12. Ten counts of 3,000,000 iterations. The range column is the part worth
+reading: a difference inside that range is not a difference.
 
 ```bash
 go test -bench . -benchmem
 ```
 
-Measured on an i9-12900KS, 24 logical processors, Go 1.27.3, on 2026-11-12. Ten counts of
-3,000,000 iterations each for the benchmark rows, five runs of 500,000 lines for the end-to-end ones.
-The range column is the part worth reading: a difference inside that range is not a difference.
+| benchmark | median | range | B/op | allocs/op | what it measures |
+|---|---|---|---|---|---|
+| `RenderPath` | 63.1 ns | 61.6–66.4 | 0 | 0 | a coloured line built, never flushed |
+| `ErrorToDiscardText` | 66.2 ns | 65.8–70.4 | 0 | 0 | the same call end to end, to `io.Discard` |
+| `ErrorToDiscardTextNoColors` | 40.0 ns | 39.4–41.3 | 0 | 0 | that call with the escapes suppressed |
+| `ErrorToDiscardJSON` | 44.5 ns | 43.8–44.9 | 0 | 0 | JSON mode, two-character message |
+| `ErrorToDiscardTextLong` | 123.9 ns | 122.7–130.6 | 0 | 0 | a realistic line, coloured text |
+| `ErrorToDiscardJSONLong` | 99.4 ns | 97.8–103.7 | 0 | 0 | the same realistic line, JSON |
+| `FilteredCall` | 1.0 ns | 0.9–1.1 | 0 | 0 | a call `MinLevel` drops |
+| `ProgressTickSkipped` | 13.0 ns | 12.9–14.2 | 0 | 0 | a `Tick` that decides not to draw |
+| `ProgressRedrawNoColors` | 166.9 ns | 165.9–176.5 | 0 | 0 | one bar line composed and written, uncoloured |
+| `ProgressRedraw` | 204.6 ns | 203.6–224.4 | 0 | 0 | the same bar line with the preset's bar colours |
+| `ProgressDone` | 707.9 ns | 691.3–725.4 | 3,264 | 4 | a bar run ending, completed bar included |
+| `ProgressDoneLargeCounts` | 729.0 ns | 721.4–740.0 | 3,264 | 4 | the same at 120,000 items |
+| `SlogToDiscard` | 340.2 ns | 336.2–349.2 | 0 | 0 | `log/slog` text handler, same writer |
+| `SlogTextLong` | 537.6 ns | 527.3–540.5 | 0 | 0 | `log/slog` text handler, realistic line |
+| `SlogJSONLong` | 592.7 ns | 586.2–615.3 | 16 | 2 | `log/slog` JSON handler, realistic line |
 
-The coloured rows state `Colors: ColorsOn` in the benchmark file. That is not decoration: since the
-colour policy landed, a logger writing to `io.Discard` is writing to a writer that is not a terminal,
-so a benchmark that meant "the coloured line" and said nothing was measuring the uncoloured one and
-reporting it as coloured. A sweep taken while the capture pipeline was writing GIFs on the same
-machine came out 1.5× slower on every row, `slog`'s included. Nothing else was running for these.
+The coloured rows state `Colors: ColorsOn` in the benchmark file: under the colour policy a logger writing
+to `io.Discard` is not writing to a terminal, so a benchmark that meant "the coloured line" and said nothing
+was measuring the uncoloured one. `ErrorToDiscardTextNoColors` is also what `ColorsAuto` writes to a pipe, a
+file or a buffer. The two `ProgressDone` rows measure a bar run ending rather than a line — the derived
+logger, its own 1,024-byte buffer, the `Progress` object and its params, paid once per operation.
 
-| benchmark | median | range | what it measures |
-|---|---|---|---|
-| `RenderPath` | 63.1 ns | 61.6–66.4 | a coloured line built, never flushed |
-| `ErrorToDiscardText` | 66.2 ns | 65.8–70.4 | the same call end to end, to `io.Discard` |
-| `ErrorToDiscardTextNoColors` | 40.0 ns | 39.4–41.3 | that call with the escapes suppressed |
-| `ErrorToDiscardJSON` | 44.5 ns | 43.8–44.9 | JSON mode, two-character message |
-| `ErrorToDiscardTextLong` | 123.9 ns | 122.7–130.6 | a realistic line, coloured text |
-| `ErrorToDiscardJSONLong` | 99.4 ns | 97.8–103.7 | the same realistic line, JSON |
-| `FilteredCall` | 1.0 ns | 0.9–1.1 | a call `MinLevel` drops |
-| `ProgressTickSkipped` | 13.0 ns | 12.9–14.2 | a `Tick` that decides not to draw |
-| `ProgressRedrawNoColors` | 166.9 ns | 165.9–176.5 | one bar line composed and written, uncoloured |
-| `ProgressRedraw` | 204.6 ns | 203.6–224.4 | the same bar line with the preset's bar colours in it |
-| `ProgressDone` | 707.9 ns | 691.3–725.4 | a bar run ending, completed bar included: 3,264 B, 4 allocs |
-| `ProgressDoneLargeCounts` | 729.0 ns | 721.4–740.0 | the same at 120,000 items: 3,264 B, 4 allocs |
-| `SlogToDiscard` | 340.2 ns | 336.2–349.2 | `log/slog` text handler, same writer |
-| `SlogTextLong` | 537.6 ns | 527.3–540.5 | `log/slog` text handler, realistic line |
-| `SlogJSONLong` | 592.7 ns | 586.2–615.3 | `log/slog` JSON handler, realistic line |
-
-Every log-line row above is `0 B/op` and `0 allocs/op`, and so are the three progress rows that draw: a
-bar line formats its numbers straight into the buffer and allocates nothing. That is the claim that
-travels between machines, and the nanoseconds belong to this one. `ProgressDone` and
-`ProgressDoneLargeCounts` are the exception, and they measure a bar run ending rather than a line — 3,264
-bytes and four allocations are the derived logger, its own 1,024-byte buffer, the `Progress` object, its
-params, and the completed bar the last row draws. A bar allocates once per operation. A log line still allocates nothing.
-
-`ErrorToDiscardTextNoColors` is also what `ColorsAuto` now writes to a pipe, a file or a buffer:
-the same path, reached by the default policy instead of by a flag.
-
-**Against `log/slog`.** `RenderPath` against `SlogToDiscard` was always the wrong shape — one
-builds a line and never flushes, the other is a complete call. The head to head is the same call
-against the same discarded writer, at both message lengths:
+**Against `log/slog`,** the same call against the same discarded writer, at both message lengths:
 
 | one call, to `io.Discard` | `stacklog` | `log/slog` | faster by |
 |---|---|---|---|
 | `"hi"` with one attribute — coloured text | 66.2 ns | 340.2 ns | **5.1×** |
 | `"upstream returned 502 for user:42"` with two attributes — coloured text | 123.9 ns | 537.6 ns | **4.3×** |
 | the same line — JSON | 99.4 ns | 592.7 ns | **6.0×** |
-| allocations per call, JSON line | `0` | `2` (`16 B`) | — |
 
-`slog` allocates on the JSON path. `stacklog` does not allocate on either.
-
-End to end matters more than a builder benchmark, and the gap narrows there — which is the
-honest part of this comparison. 500,000 identical lines written to a real file on the same
-machine, median of five runs:
+And end to end, 500,000 lines to a real file, 256 KB buffered, median of five runs:
 
 | 500,000 lines to a real file | ns per line | lines per second |
 |---|---|---|
-| `stacklog` `ColorsAuto` — a file is not a terminal, so no escapes — 256 KB buffered | 97 | 10.3M |
-| `stacklog` `ColorsOn`, 256 KB buffered | 155 | 6.5M |
-| `slog` text handler, 256 KB buffered | 574 | 1.74M |
-| `stacklog` JSON, 256 KB buffered | 119 | 8.4M |
-| `slog` JSON handler, 256 KB buffered | 628 | 1.59M |
+| `stacklog` `ColorsAuto` — a file is not a terminal, so no escapes | 97 | 10.3M |
+| `slog` text handler | 574 | 1.74M |
+| `stacklog` `ColorsOn` | 155 | 6.5M |
+| `stacklog` JSON | 119 | 8.4M |
+| `slog` JSON handler | 628 | 1.59M |
 | `stacklog` `ColorsAuto`, one syscall per line | 309 | 3.2M |
 | `slog` text, one syscall per line | 861 | 1.16M |
-| `stacklog` JSON, one syscall per line | 355 | 2.8M |
-| `slog` JSON, one syscall per line | 910 | 1.10M |
 
-5.9× on the default buffered line against `slog`'s text handler, 3.7× when colour is asked for
-explicitly, 5.3× on buffered JSON, 2.8× when both are doing one syscall per line. The multiplier
-shrinks because the write dominates end to end and both pay it. Anyone quoting a 5× speedup from a
-builder benchmark is quoting the part of the cost they control.
+5.9× on the default buffered line, 3.7× when colour is asked for explicitly, 5.3× on buffered JSON, 2.8×
+when both are doing one syscall per line. The multiplier shrinks end to end because the write dominates and
+both pay it — anyone quoting a 5× speedup from a builder benchmark is quoting the part of the cost they
+control.
 
-One number runs the other way, and it belongs here: the coloured text line is **115.9 bytes**
-against `slog`'s 104.9 — 11 bytes more, 10%. Under the colour policy that is no longer the default:
-the same call to the same file with `ColorsAuto` writes **56.6 bytes**, just over half of what
-`slog` writes. `stacklog` JSON is 94.9 bytes against `slog` JSON at 128.5.
+One number runs the other way: the coloured text line is **115.9 bytes** against `slog`'s 104.9. Under the
+colour policy that is no longer the default — the same call to the same file writes **56.6 bytes**, just
+over half of what `slog` writes. `stacklog` JSON is 94.9 bytes against `slog` JSON at 128.5.
 
-What `slog` gives up this comparison does not measure: handlers and middleware, `WithGroup`,
-`LogValue` so a type decides how it renders, source attribution, a level set, and a logger that
-is safe to share between goroutines. `stacklog` is one logger per goroutine by design. Speed is
-one axis, and pretending it is the only one would be a worse advertisement than the table above.
+What `slog` gives up that this comparison does not measure: handlers and middleware, `WithGroup`,
+`LogValue`, source attribution, a level set, and a logger that is safe to share between goroutines.
+`stacklog` is one logger per goroutine by design. Speed is one axis.
 
-**What colour costs.** The same line with the escapes suppressed is 40.0 ns against 66.2 ns. Escapes are
-about 26 ns of a 66 ns line, which means 40% of building a coloured line is emitting colour — and end to
-end the split is wider, 97 ns against 155 ns, because a coloured realistic line spends 59.3 of its 115.9
-bytes on escape sequences. A bar line pays the same tax in its own shape: 165.5 ns with the bar left
-colourless against 204.6 ns with the preset's green-on-grey bar in it, about 38 ns a line. Any further
-optimisation here should start from those
-numbers rather than from a hunch.
+## The limits, stated up front
 
-**Read the long-line pair, not the short one.** At a two-character message there is no run of
-ordinary text to copy in bulk, so JSON looks as cheap as plain text and the escaping never shows
-up. With the message length the package is used at — `upstream returned 502 for user:42` with
-`user=vlad` and `ms=12.4` — a JSON line is 99.4 ns against 123.9 ns for the coloured text line.
-JSON mode used to cost 28% more than a coloured text line for the same content. It now costs 20%
-less. The escaping was the entire difference.
-
-Two changes since v1.4.0 shipped, each measured against the same baseline in the same sitting:
-
-| change | before | after |
-|---|---|---|
-| each escape assembled in a stack array and copied once, instead of a bounds-checked write per byte | 142.7 ns | 121.0 ns — coloured text, long line |
-| runs of ordinary text copied in bulk by the JSON escape writer | 182.5 ns | 109.8 ns — JSON, long line |
-
-The `after` column is the paired run that justified each change, taken against the commit before
-it. The table above is the current sweep of the same code. 109.8 and 99.4 are the same build measured in
-successive sittings, and the gap is the machine being warmer and busier — which is why the ranges are
-printed rather than a single number.
-
-`RenderPath` measures 63.1 ns in this sweep, and 61.6, 62.7, 64.5 and 64.6 in the four sittings before it:
-the same code, and every one of those numbers sits inside a range column printed here.
-
-What is still on the table is compiling each style's escapes once per logger instead of per line.
-That is the remaining prize, and it collides with `Config.Style.Level[ErrorLevel]` being settable
-after `CreateLogger` — which the README documents as the supported way to reach a component. That
-is an API decision rather than an optimisation, so it is not taken quietly inside a `perf` commit.
-
-`CreateLogger` allocates, and so does `WithParams`. The per-line path does not.
+- The buffer is `[1024]byte`, fixed. It never grows. Content stops at 1020 bytes in text mode and 1004 in
+  JSON mode; a longer line is cut and marked with `...`, and it keeps its terminator so two log calls never
+  merge. A configurable buffer size was considered and refused:
+  [#17](https://github.com/itsvlxd/StackLog/issues/17).
+- No lock guards a logger. Derive one per goroutine.
+- The per-line path allocates nothing. `CreateLogger`, `WithParams`, `WithPrefix` and `WithProgress`
+  allocate, because they build something.
+- No terminal width, no `syscall`, no `golang.org/x/term`, no external dependency of any kind.
+- Not a sanitizer: escapes you put in a message are written.
+- The reasoning behind a decision, including the ones that were reversed on the way, is in the commit
+  message that shipped it and in the issue it names.
 
 ## How these captures are made
 
-Every image in this README is recorded, not drawn. `./example/capture.sh` runs the showcase program
-(`example/main.go`) once per feature and records each section on its own tape. The section names come
-from the program — `go run ./example -list` prints them — and the script is driven by that list, so a
-feature cannot be captured unless it exists and cannot be dropped without the script saying so.
-Sixteen sections in the program, sixteen entries in the asset map, sixteen images referenced here,
-sixteen files in `assets/`. Drift in either direction fails the run.
+`./example/capture.sh` runs the showcase program (`example/main.go`) once per feature and records each
+section on its own tape. The section names come from the program — `go run ./example -list` prints them —
+and the script is driven by that list, so a feature cannot be captured unless it exists and cannot be
+dropped without the script saying so. Seventeen sections, seventeen entries in the asset map, seventeen
+images here, seventeen files in `assets/`. Drift in either direction fails the run.
 
-Three facts about a recording are worth knowing before anything in it is read as a measurement.
+Three things to know before reading a capture as evidence:
 
-- **The theme is pinned.** Captures use `Builtin Dark`. A terminal recorder paints the base ANSI
-  colours from its own theme rather than from yours, so the colours in these images are one rendering
-  of what the package emits, not a promise about your palette. An index is a theme's opinion; a hex is
+- **The theme is pinned** to `Builtin Dark`. A recorder paints the base ANSI colours from its own theme
+  rather than from yours, so an index in these images is one rendering of what the package emits. A hex is
   a request.
-- **A GIF carries an indexed palette of 256 colours.** A truecolour value the package emits is rounded
-  to the nearest entry that palette holds — in the *Colours and styles* capture `#D75F5F` lands as
-  `#DA6053`, three units off in red. That is a limit of the recording, not of the package. Lowering
-  the font size to fit the widest capture into a narrower column moved the same family of hex 22 units
-  off, which is why the font size is pinned in the script and why that trade is written down there
-  rather than argued here.
-- **The recorder hands the program a pty.** That is how the colour policy is demonstrated on the
-  positive side rather than merely asserted: under `ColorsAuto` the showcase is coloured because vhs
-  gives it standard output attached to a character device, and the same program piped into `cat`
-  writes no escape sequences at all. The negative half is a test in `colorpolicy_test.go`; the
-  positive half is a GIF.
+- **A GIF carries an indexed palette of 256 colours**, so a truecolour value is rounded to the nearest entry
+  it holds — in the *Colours and styles* capture `#D75F5F` lands as `#DA6053`. That is a limit of the
+  recording, not of the package.
+- **The recorder hands the program a pty**, which is how the colour policy is demonstrated on the positive
+  side rather than asserted: under `ColorsAuto` the showcase is coloured because vhs gives it standard
+  output attached to a character device, and the same program piped into `cat` writes no escape sequences at
+  all. The negative half is a test.
+
+## Read further
+
+- [pkg.go.dev/github.com/itsvlxd/stacklog](https://pkg.go.dev/github.com/itsvlxd/stacklog) — the reference
+- [CHANGELOG.md](CHANGELOG.md) — what each release changed
+- Open decisions: [#31 terminal width](https://github.com/itsvlxd/StackLog/issues/31)
+- Decisions made and closed: [#28 colour policy](https://github.com/itsvlxd/StackLog/issues/28),
+  [#29 progress bar](https://github.com/itsvlxd/StackLog/issues/29),
+  [#30 colour inside a message](https://github.com/itsvlxd/StackLog/issues/30),
+  [#17 configurable buffer size](https://github.com/itsvlxd/StackLog/issues/17)
